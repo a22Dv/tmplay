@@ -1,0 +1,6 @@
+{
+  "dependencies": [
+    "miniaudio",
+    "yaml-cpp"
+  ]
+}
