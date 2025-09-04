@@ -14,7 +14,6 @@
 #include <unordered_set>
 #include <yaml-cpp/yaml.h>
 
-
 #pragma comment(lib, "Shell32.lib")
 
 namespace tml {
@@ -106,7 +105,7 @@ Player::Player() {
             }
             if (!filepaths.contains(entryPath)) {
                 entries[++maxUid] = AudioEntry{entryPath, maxUid};
-                
+
                 file.push_back(entries[maxUid]);
             }
         }
@@ -132,8 +131,24 @@ void Player::run() {
     thread = std::thread([this] { this->pThread(); });
 }
 
+namespace {
+
+void callback(ma_device *pDevice, void *pOut, const void *pIn, unsigned int fCount) {
+    Player& player{*static_cast<Player*>(pDevice->pUserData)};
+}
+
+}
+
 void Player::pThread() {
-    while (true) {
+    ma_device_config config{};
+    config.sampleRate = sampleRate;
+    config.deviceType = ma_device_type_playback;
+    config.dataCallback = callback;
+    config.pUserData = this;
+    ma_device device{};
+    ma_device_init(nullptr, &config, &device);
+    while (true) {        
+        continue;
     }
 };
 
