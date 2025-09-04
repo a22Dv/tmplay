@@ -3,6 +3,7 @@ project(tmplay CXX)
 
 find_path(MINIAUDIO "miniaudio.h")
 find_package(yaml-cpp CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -21,4 +22,4 @@ target_sources(tmplay PRIVATE
 )
 target_compile_options(tmplay PRIVATE /EHsc)
 target_include_directories(tmplay PRIVATE "${CMAKE_SOURCE_DIR}/include/" ${MINIAUDIO})
-target_link_libraries(tmplay PRIVATE ftxui::dom ftxui::screen ftxui::component yaml-cpp::yaml-cpp)
+target_link_libraries(tmplay PRIVATE ftxui::dom ftxui::screen ftxui::component yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json)

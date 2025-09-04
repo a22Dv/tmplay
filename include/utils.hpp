@@ -13,7 +13,10 @@
     E(CONFIG_READ_ERROR, "Unable to read from configuration file.")                                                    \
     E(MUSIC_PATH_ERROR, "Unable to get path to user's Music/ folder.")                                                 \
     E(CONFIG_WRITE_ERROR, "Unable to write to configuration file.")                                                    \
-    E(CONFIG_ARGUMENT_PATH_ERROR, "Invalid path found in configuration file.")
+    E(CONFIG_ARGUMENT_PATH_ERROR, "Invalid path found in configuration file.")                                         \
+    E(DATA_WRITE_ERROR, "Unable to write to data file.")                                                               \
+    E(DATA_PATH_ERROR, "Unable to find data file.") \
+    E(DATA_READ_ERROR, "Unable to read from data file.")
 
 namespace tml {
 

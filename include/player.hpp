@@ -8,9 +8,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <nlohmann/detail/macro_scope.hpp>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <unordered_map>
 #include <vector>
-
 
 namespace tml {
 
@@ -36,7 +38,21 @@ struct Command {
     Command(
         const CommandType comType = CommandType::NONE, const bool b = false, const float f = 0.0,
         const std::size_t sz = 0
-    ) : comType{comType}, b{b}, f{f}, sz{sz} {};
+    )
+        : comType{comType}, b{b}, f{f}, sz{sz} {};
+};
+
+struct AudioEntry {
+    std::uint32_t uid{};
+    std::filesystem::path filePath{};
+    float duration{};
+    std::uint32_t tPlayed{};        // Considered played after 3s.
+    std::uint32_t tSkipped{};       // Must be played (>3s) then skipped.
+    std::vector<float> signature{}; // Audio signature.
+    float avgPlaytime{};            // Avg time before skipped.
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(AudioEntry, uid, filePath, duration, tPlayed, tSkipped, signature, avgPlaytime);
+    AudioEntry() {};
+    AudioEntry(std::filesystem::path fPath, std::uint32_t uid) : uid{uid}, filePath{fPath} {};
 };
 
 struct PlayerInternalState {
@@ -69,7 +85,7 @@ struct PlayerState {
 };
 
 class Player {
-    std::vector<std::filesystem::path> audPaths{};
+    std::unordered_map<std::uint32_t, AudioEntry> entries{};
     PlayerInternalState internalState{};
     PlayerState state{};
     std::thread thread{};
@@ -83,7 +99,7 @@ class Player {
     Player(Player &&) = delete;
     Player operator=(Player &&) = delete;
     ~Player();
-    const std::vector<std::filesystem::path> &getPaths() const;
+    const std::unordered_map<std::uint32_t, AudioEntry> &getEntries() const;
     PlayerStateSnapshot getState() const;
     void run();
     void playFile(const std::size_t idx);

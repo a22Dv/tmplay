@@ -1,6 +1,7 @@
 {
   "dependencies": [
     "miniaudio",
-    "yaml-cpp"
+    "yaml-cpp",
+    "nlohmann-json"
   ]
 }
