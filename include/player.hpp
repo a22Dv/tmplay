@@ -44,6 +44,7 @@ enum class CommandType : std::uint8_t {
     VOL_DOWN,
     SEEK_BACKWARD,
     SEEK_FORWARD,
+    SEEK_TO,
     TOGGLE_PLAYBACK,
     TOGGLE_MUTE,
     TOGGLE_LOOP,
@@ -61,6 +62,8 @@ struct Command {
 
 struct AudioState {
     // Lock-free.
+    std::atomic<std::size_t> serial{};
+    std::atomic<std::chrono::duration<float>> timestamp{};
     std::atomic<bool> terminate{};
     std::atomic<bool> muted{};
     std::atomic<bool> looped{};
@@ -76,17 +79,18 @@ struct AudioState {
     std::array<Command, comQueueLen> commandQueue{};
     std::condition_variable conVar{};
     std::mutex mutex{};
+
 };
 
 class Audio {
-    static const std::uint32_t sampleRate{48'000};
-    static const std::uint32_t channels{2};
     AudioState state{};
     std::thread producerThread{};
     void pthread();
     void sendCommand(const Command command);
 
   public:
+    static const std::uint32_t sampleRate{48'000};
+    static const std::uint32_t channels{2};
     void run();
     void seekForward(const float v = 1.0f);
     void seekBackward(const float v = 1.0f);
@@ -99,10 +103,10 @@ class Audio {
     void toggleLooping();
     void stopCurrent();
     Audio() {};
-    Audio &operator=(const Audio &other) = delete;
-    Audio(const Audio &other) = delete;
-    Audio &operator=(Audio &&other) = delete;
-    Audio(Audio &&other) = delete;
+    Audio &operator=(const Audio &) = delete;
+    Audio(const Audio &) = delete;
+    Audio &operator=(Audio &&) = delete;
+    Audio(Audio &&) = delete;
     ~Audio();
 };
 

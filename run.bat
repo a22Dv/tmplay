@@ -1,2 +1,2 @@
 @echo off
-./build/debug/tmplay
+.\build\debug\tmplay.exe
