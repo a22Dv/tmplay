@@ -1,7 +1,8 @@
 {
   "dependencies": [
     "miniaudio",
+    "nlohmann-json",
     "yaml-cpp",
-    "nlohmann-json"
+    "ffmpeg"
   ]
 }

@@ -1,49 +1,75 @@
+#pragma once
+
+/**
+    TODO:
+    Handle cross-platform. Features that are preventing this:
+    Windows-only path resolve to program executable and music directory.
+    Windows-only console clearing.
+*/
 #ifdef _WIN32
 #include <Windows.h>
+
+#include <ShlObj.h>
 #else
-#error "UNSUPPORTED OS"
+#error "UNSUPPORTED OS."
 #endif
+
 #include <cstddef>
 #include <filesystem>
 #include <stdexcept>
+#include <type_traits>
 
-#define ERROR_LIST                                                                                                     \
-    E(EXEC_PATH_ERROR, "Unable to get path to process executable.")                                                    \
-    E(CONFIG_PATH_ERROR, "Unable to find configuration file.")                                                         \
-    E(CONFIG_READ_ERROR, "Unable to read from configuration file.")                                                    \
-    E(MUSIC_PATH_ERROR, "Unable to get path to user's Music/ folder.")                                                 \
-    E(CONFIG_WRITE_ERROR, "Unable to write to configuration file.")                                                    \
-    E(CONFIG_ARGUMENT_PATH_ERROR, "Invalid path found in configuration file.")                                         \
-    E(DATA_WRITE_ERROR, "Unable to write to data file.")                                                               \
-    E(DATA_PATH_ERROR, "Unable to find data file.") \
-    E(DATA_READ_ERROR, "Unable to read from data file.")
+#define ERRORS                                                                                                         \
+    E(FF_NOT_FOUND, "FFmpeg/FFprobe cannot be found on this system's path.")                                           \
+    E(EXEC_PATH, "Cannot resolve path to executable.")                                                                 \
+    E(MUSIC_PATH, "Cannot resolve path to current user's Music directory.")                                            \
+    E(WRITE, "Encountered an error when writing to a file.")                                                           \
+    E(READ, "Encountered an error when reading from a file.")                                                          \
+    E(MINIAUDIO, "Encountered an error during audio setup/playback.")
 
 namespace tml {
 
-enum class Error : std::size_t {
-#define E(code, message) code,
-    ERROR_LIST
+namespace fs = std::filesystem;
+
+enum class Error : std::uint8_t {
+#define E(code, msg) code,
+    ERRORS
 #undef E
 };
 
-constexpr const char *messages[]{
-#define E(code, message) "EXCEPTION: " message,
-    ERROR_LIST
+constexpr const char *errorMessages[] = {
+#define E(code, msg) msg,
+    ERRORS
 #undef E
 };
 
-inline void require(const bool cond, const Error err) {
-    if (!cond) {
-        throw std::runtime_error(messages[static_cast<std::size_t>(err)]);
+inline void require(const bool condition, const Error err) {
+    if (!condition) {
+        throw std::runtime_error(errorMessages[static_cast<std::size_t>(err)]);
     }
+}
+
+inline fs::path getUserMusicDirectory() {
+    PWSTR pPath{};
+    HRESULT ret{SHGetKnownFolderPath(FOLDERID_Music, 0, nullptr, &pPath)};
+    require(SUCCEEDED(ret), Error::MUSIC_PATH);
+    fs::path mPath{pPath};
+    CoTaskMemFree(pPath);
+    return mPath;
+}
+
+inline fs::path getExecDirectory() {
+    WCHAR buffer[MAX_PATH];
+    DWORD ret{GetModuleFileNameW(nullptr, buffer, MAX_PATH)};
+    require(ret != 0 && ret < MAX_PATH, Error::EXEC_PATH);
+    return fs::path{buffer}.parent_path();
 };
 
-constexpr std::size_t bufSize{MAX_PATH};
-inline std::filesystem::path getExecPath() {
-    WCHAR fName[bufSize]{};
-    const DWORD ret{GetModuleFileNameW(NULL, fName, bufSize)};
-    require(ret != 0 && ret < bufSize, Error::EXEC_PATH_ERROR);
-    return std::filesystem::path(fName);
+inline void clearConsole() { system("cls"); }
+
+template <typename T, typename = std::enable_if_t<std::is_enum_v<T> && !std::is_convertible_v<T, int>>>
+constexpr std::size_t szT(const T eVal) {
+    return static_cast<std::size_t>(eVal);
 }
 
 } // namespace tml

@@ -1,175 +1,128 @@
-#define NOMINMAX
-#define MINIAUDIO_IMPLEMENTATION
-#include "player.hpp"
-#include "utils.hpp"
-#include <ShlObj.h>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <miniaudio.h>
-#include <mutex>
 #include <nlohmann/json.hpp>
+#include <ostream>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
+#include <chrono>
+#include <thread>
 #include <yaml-cpp/yaml.h>
+
+#include "player.hpp"
+#include "utils.hpp"
 
 #pragma comment(lib, "Shell32.lib")
 
 namespace tml {
 
-PlayerInternalState::PlayerInternalState() { rBuffer.resize(rBufferLength); }
+namespace JSON = nlohmann;
 
-namespace {
+namespace detail {
 
-std::filesystem::path getMusicFolderPath() {
-    PWSTR path{};
-    HRESULT r{SHGetKnownFolderPath(FOLDERID_Music, 0, nullptr, &path)};
-    require(SUCCEEDED(r), Error::MUSIC_PATH_ERROR);
-    std::filesystem::path mPath{path};
-    CoTaskMemFree(path);
-    return mPath;
-}
-
-} // namespace
-
-/*
-    Refactor for data integrity. Writes/Reads to the file.
-    Consolidate multiple open/close streams.
-*/
-Player::Player() {
-    std::filesystem::path configPath{getExecPath().parent_path() / "config.yaml"};
-    std::filesystem::path entriesPath{getExecPath().parent_path() / "data.json"};
-
-    // Config setup.
-    if (!std::filesystem::exists(configPath)) {
-        YAML::Node wConfig{};
-        wConfig["paths"].push_back(std::string{reinterpret_cast<const char *>(getMusicFolderPath().u8string().data())});
-        std::ofstream oStream{configPath};
-        require(oStream.is_open(), Error::CONFIG_WRITE_ERROR);
-        oStream << wConfig;
-        oStream.close();
-    }
-    std::ifstream fStream{configPath};
-    require(fStream.is_open(), Error::CONFIG_READ_ERROR);
-    YAML::Node configFile{YAML::Load(fStream)};
-    std::vector<std::filesystem::path> scanPaths{};
-    for (std::string &pth : configFile["paths"].as<std::vector<std::string>>()) {
-        scanPaths.push_back(std::filesystem::path{pth});
-    }
-    fStream.close();
-
-    // Data setup.
-    if (!std::filesystem::exists(entriesPath)) {
-        nlohmann::json file{};
-        std::ofstream oStream{entriesPath};
-        require(oStream.is_open(), Error::DATA_WRITE_ERROR);
-        oStream << file.dump() << std::endl;
-        oStream.close();
-    }
-    std::ifstream jsonStream{entriesPath};
-    require(jsonStream.is_open(), Error::DATA_READ_ERROR);
-    nlohmann::json file{nlohmann::json::parse(jsonStream)};
-    file.clear();
-    for (const nlohmann::json &entry : file) {
-        AudioEntry jEntry{entry.get<AudioEntry>()};
-        entries[jEntry.uid] = jEntry;
-    }
-    std::uint32_t maxUid{[&] {
-        std::uint32_t maxUid{};
-        if (entries.empty()) {
-            return maxUid;
-        }
-        return std::max_element(
-                   entries.begin(), entries.end(),
-                   [](const std::pair<const uint32_t, AudioEntry> &a, const std::pair<const uint32_t, AudioEntry> &b) {
-                       return a.first < b.first;
-                   }
-        )->first;
-    }()};
-    std::unordered_set<std::filesystem::path> filepaths{[&] {
-        std::unordered_set<std::filesystem::path> filepaths{};
-        for (const std::pair<unsigned int, AudioEntry> &entry : entries) {
-            filepaths.insert(entry.second.filePath);
-        }
-        return filepaths;
-    }()};
-    static const std::unordered_set<std::filesystem::path> supportedExt{".flac", ".wav", ".aiff", ".alac", ".ape",
-                                                                        ".wma",  ".mp3", ".m4a",  ".aac",  ".ogg",
-                                                                        ".opus", ".mpc", ".weba", ".webm"};
-    for (const std::filesystem::path &path : scanPaths) {
-        require(std::filesystem::exists(path), Error::CONFIG_ARGUMENT_PATH_ERROR);
-        for (const std::filesystem::path &entryPath : std::filesystem::recursive_directory_iterator(path)) {
-            if (!supportedExt.contains(entryPath.extension())) {
+std::vector<fs::path> scanPaths(const std::vector<fs::path> &paths) {
+    // clang-format off
+    static std::unordered_set<std::string> supportedExtensions{
+        ".flac", ".wav", ".aiff", ".alac", ".ape",
+        ".wma",  ".mp3", ".m4a",  ".aac",  ".ogg",
+        ".opus", ".mpc", ".weba", ".webm"
+    };
+    // clang-format on
+    std::vector<fs::path> scannedPaths{};
+    for (const auto &path : paths) {
+        for (const auto &entry : fs::recursive_directory_iterator(path)) {
+            if (!entry.is_regular_file()) {
                 continue;
             }
-            if (!filepaths.contains(entryPath)) {
-                entries[++maxUid] = AudioEntry{entryPath, maxUid};
-
-                file.push_back(entries[maxUid]);
+            const fs::path entryPath{entry.path()};
+            std::string ext{entryPath.extension().string()};
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](const auto &e) { return std::tolower(e); });
+            if (!supportedExtensions.contains(ext)) {
+                continue;
             }
+            scannedPaths.push_back(entryPath);
         }
     }
-    std::ofstream oStream{entriesPath};
-    require(oStream.is_open(), Error::DATA_WRITE_ERROR);
-    oStream << file.dump() << std::endl;
-    oStream.close();
-    jsonStream.close();
+    return scannedPaths;
 }
 
-Player::~Player() {
-    {
-        std::lock_guard<std::mutex> lock{internalState.mutex};
-        internalState.terminate = true;
+std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std::vector<Entry> &existingEntries) {
+    std::unordered_map<fs::path, Entry> existing{[&] {
+        std::unordered_map<fs::path, Entry> existing{};
+        for (const auto &entry : existingEntries) {
+            existing[entry.u8filePath] = entry;
+        }
+        return existing;
+    }()};
+    std::vector<Entry> out{};
+    for (const auto &path : newEntries) {
+        if (existing.contains(path)) {
+            out.push_back(existing[path]);
+        } else {
+            out.push_back(Entry{path});
+        }
     }
-    if (thread.joinable()) {
-        thread.join();
+    return out;
+}
+
+}; // namespace detail
+
+Player::Player() {
+
+    // File default initialization.
+    const bool dExists{fs::exists(dataPath)};
+    const bool cExists{fs::exists(configPath)};
+    if (!dExists) {
+        std::ofstream outStream{dataPath, std::ios::out | std::ios::trunc};
+        require(outStream.is_open(), Error::WRITE);
+        JSON::json data{};
+        outStream << data << std::endl;
     }
+    if (!cExists) {
+        std::ofstream outStream{configPath, std::ios::out | std::ios::trunc};
+        require(outStream.is_open(), Error::WRITE);
+        YAML::Node defaultConfig{};
+        const std::u8string mpath{getUserMusicDirectory().u8string()};
+        defaultConfig["scan-paths"] =
+            std::vector<std::string>{std::string{reinterpret_cast<const char *>(mpath.data()), mpath.length()}};
+        defaultConfig["default-volume"] = 100;
+        defaultConfig["visualization"] = true;
+        defaultConfig["loop-by-default"] = false;
+        outStream << defaultConfig << std::endl;
+    }
+
+    std::ifstream inputStreamConfig{configPath};
+    std::ifstream inputStreamData{dataPath};
+    require(inputStreamConfig.is_open(), Error::READ);
+    require(inputStreamData.is_open(), Error::READ);
+    YAML::Node yamlConfig{YAML::Load(inputStreamConfig)};
+    JSON::json data(JSON::json::parse(inputStreamData));
+
+    config.defaultVolume = yamlConfig["default-volume"].as<std::uint8_t>();
+    config.visualization = yamlConfig["visualization"].as<bool>();
+    config.loopByDefault = yamlConfig["loop-by-default"].as<bool>();
+
+    std::vector<std::string> rscanPaths{yamlConfig["scan-paths"].as<std::vector<std::string>>()};
+    std::transform(rscanPaths.begin(), rscanPaths.end(), std::back_inserter(config.scanPaths), [](const auto &e) {
+        return fs::path{std::u8string{reinterpret_cast<const char8_t *>(e.data()), e.length()}};
+    });
+    fileEntries = detail::setEntries(
+        detail::scanPaths(config.scanPaths), data.is_null() ? std::vector<Entry>{} : data.get<std::vector<Entry>>()
+    );
+    std::ofstream outputStreamData{dataPath, std::ios::out | std::ios::trunc};
+    require(outputStreamData.is_open(), Error::WRITE);
+    outputStreamData << JSON::json(fileEntries).dump(4) << std::endl;
 }
 
 void Player::run() {
-    thread = std::thread([this] { this->pThread(); });
-}
-
-namespace {
-
-void callback(ma_device *pDevice, void *pOut, const void *pIn, unsigned int fCount) {
-    Player& player{*static_cast<Player*>(pDevice->pUserData)};
-}
-
-}
-
-void Player::pThread() {
-    ma_device_config config{};
-    config.sampleRate = sampleRate;
-    config.deviceType = ma_device_type_playback;
-    config.dataCallback = callback;
-    config.pUserData = this;
-    ma_device device{};
-    ma_device_init(nullptr, &config, &device);
-    while (true) {        
-        continue;
+    while (true) {
+        aud.playEntry(fileEntries[0]);
+        std::this_thread::sleep_for(std::chrono::seconds(150));
     }
-};
-
-const std::unordered_map<std::uint32_t, AudioEntry> &Player::getEntries() const { return entries; }
-
-PlayerStateSnapshot Player::getState() const {
-    PlayerStateSnapshot snapshot{};
-    snapshot.timestamp = state.timestamp.load();
-    snapshot.playing = state.playing.load();
-    snapshot.muted = state.muted.load();
-    snapshot.cVol = state.cVol.load();
-    snapshot.cFileIdx = state.cFileIdx.load();
-    return snapshot;
 }
-
-void Player::playFile(const std::size_t idx) {}
-void Player::pauseFile() {}
-void Player::muteFile() {}
-void Player::seekFile(const std::chrono::milliseconds ms) {}
-void Player::setVol(const float nVol) {}
-void Player::incVol(const float iVal) {}
-void Player::decVol(const float dVal) {}
 
 } // namespace tml

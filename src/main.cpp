@@ -1,14 +1,17 @@
+#include <exception>
+#include <iostream>
+#include <format>
+
 #include "player.hpp"
 #include "utils.hpp"
-#include <filesystem>
-#include <iostream>
-#include <utility>
 
 int main() {
-    tml::Player p{};
-    SetConsoleOutputCP(CP_UTF8);
-    for (const std::pair<unsigned int, tml::AudioEntry> &entry : p.getEntries()) {
-        std::cout << reinterpret_cast<const char*>(entry.second.filePath.u8string().data()) << std::endl;
+    try {
+        tml::Player p{};
+        p.run();
+    } catch (const std::exception &e) {
+        tml::clearConsole();
+        std::cerr << std::format("UNHANDLED EXCEPTION: {}", e.what()) << std::endl;
     }
     return 0;
 }
