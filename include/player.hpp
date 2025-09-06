@@ -16,6 +16,7 @@ namespace tml {
 
 constexpr std::size_t sigSize{8};
 constexpr std::size_t comQueueLen{5};
+constexpr std::size_t cStyleBufferLimit{512};
 
 struct Entry {
     std::string u8filePath{};

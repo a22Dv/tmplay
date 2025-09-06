@@ -20,12 +20,18 @@
 #include <type_traits>
 
 #define ERRORS                                                                                                         \
-    E(FF_NOT_FOUND, "FFmpeg/FFprobe cannot be found on this system's path.")                                           \
     E(EXEC_PATH, "Cannot resolve path to executable.")                                                                 \
     E(MUSIC_PATH, "Cannot resolve path to current user's Music directory.")                                            \
     E(WRITE, "Encountered an error when writing to a file.")                                                           \
     E(READ, "Encountered an error when reading from a file.")                                                          \
-    E(MINIAUDIO, "Encountered an error during audio setup/playback.")
+    E(MINIAUDIO, "Encountered an error during audio setup/playback.")                                                  \
+    E(FFMPEG_OPEN, "Encountered an error when FFmpeg opened the given file.")                                          \
+    E(FFMPEG_STREAM, "FFmpeg could not find file's stream info.")                                                      \
+    E(FFMPEG_DECODER, "FFmpeg could not find a suitable decoder for the given stream.")                                \
+    E(FFMPEG_CONTEXT, "FFmpeg encountered an error regarding context allocation.")                                     \
+    E(FFMPEG_NOSTREAM, "FFmpeg could not find a stream in the file.")                                                  \
+    E(FFMPEG_ALLOC, "FFmpeg encountered a memory allocation failure.")                                                 \
+    E(FFMPEG_FILTER, "FFmpeg encountered an error during a filter graph operation.")
 
 namespace tml {
 
