@@ -70,9 +70,6 @@ struct AudioState {
     std::atomic<bool> looped{};
     std::atomic<bool> playback{};
     std::atomic<float> volume{};
-    std::atomic<std::size_t> bufferW{};
-    std::atomic<std::size_t> bufferR{};
-    std::vector<std::int16_t> buffer{};
 
     // Mutex-protected.
     std::size_t commandW{};
@@ -80,7 +77,6 @@ struct AudioState {
     std::array<Command, comQueueLen> commandQueue{};
     std::condition_variable conVar{};
     std::mutex mutex{};
-
 };
 
 class Audio {
@@ -93,7 +89,9 @@ class Audio {
     static const std::uint32_t sampleRate{48'000};
     static constexpr std::chrono::duration<float> samplePeriod{1 / sampleRate};
     static const std::uint32_t channels{2};
+    AudioState &getState() { return state; };
     void run();
+    void seekTo(const float v = 0.0f);
     void seekForward(const float v = 1.0f);
     void seekBackward(const float v = 1.0f);
     void volUp(const float v = 1.0f);
@@ -104,7 +102,7 @@ class Audio {
     void togglePlayback();
     void toggleLooping();
     void stopCurrent();
-    Audio() {};
+    Audio();
     Audio &operator=(const Audio &) = delete;
     Audio(const Audio &) = delete;
     Audio &operator=(Audio &&) = delete;

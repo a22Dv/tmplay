@@ -79,4 +79,47 @@ constexpr std::size_t szT(const T eVal) {
     return static_cast<std::size_t>(eVal);
 }
 
+template <typename T, auto F> struct deleter {
+    void operator()(T *ptr) {
+        if (!ptr) {
+            return;
+        }
+        if constexpr (std::is_invocable_v<decltype(F), T **>) {
+            F(&ptr);
+        } else {
+            F(ptr);
+        }
+    }
+};
+
+template <typename T> class observer_ptr {
+    T *rawPtr{};
+
+  public:
+    constexpr T *get() noexcept { return rawPtr; };
+    constexpr T **getAddress() noexcept { return &rawPtr; };
+    constexpr void reset(T *n = nullptr) noexcept { rawPtr = n; }
+    constexpr T *release() noexcept {
+        T *addr{rawPtr};
+        rawPtr = nullptr;
+        return addr;
+    }
+    constexpr void swap(observer_ptr &other) noexcept { std::swap(rawPtr, other.rawPtr); }
+
+    constexpr T &operator*() const noexcept { return *rawPtr; }
+    constexpr T *operator->() const noexcept { return rawPtr; }
+    constexpr explicit operator bool() const noexcept { return static_cast<bool>(rawPtr); }
+
+    constexpr observer_ptr() noexcept = default;
+    constexpr observer_ptr(std::nullptr_t) noexcept {}
+    constexpr explicit observer_ptr(T *ptr) noexcept : rawPtr{ptr} {};
+    constexpr observer_ptr(const observer_ptr &) noexcept = default;
+    constexpr observer_ptr &operator=(const observer_ptr &) noexcept = default;
+    constexpr observer_ptr(observer_ptr &&) noexcept = default;
+    constexpr observer_ptr &operator=(observer_ptr &&) noexcept = default;
+    constexpr auto operator<=>(const observer_ptr &) const noexcept = default;
+};
+template <typename T> constexpr bool operator==(const observer_ptr<T> &lhs, std::nullptr_t) noexcept { return !lhs; }
+template <typename T> constexpr bool operator==(std::nullptr_t, const observer_ptr<T> &rhs) noexcept { return !rhs; }
+
 } // namespace tml

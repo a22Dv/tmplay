@@ -1,17 +1,18 @@
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <chrono>
-#include <thread>
 #include <yaml-cpp/yaml.h>
+
 
 #include "player.hpp"
 #include "utils.hpp"
@@ -119,9 +120,13 @@ Player::Player() {
 }
 
 void Player::run() {
-    while (true) {
-        aud.playEntry(fileEntries[0]);
-        std::this_thread::sleep_for(std::chrono::seconds(150));
+    SetConsoleOutputCP(CP_UTF8);
+    aud.run();
+    for (Entry &entry : fileEntries) {
+        std::cout << entry.u8filePath << std::endl;
+        aud.playEntry(entry, config.defaultVolume / 100.0f);
+        aud.seekTo(40.0f);
+        std::this_thread::sleep_for(std::chrono::seconds(5));
     }
 }
 
