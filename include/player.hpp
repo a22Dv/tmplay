@@ -91,6 +91,7 @@ class Audio {
 
   public:
     static const std::uint32_t sampleRate{48'000};
+    static constexpr std::chrono::duration<float> samplePeriod{1 / sampleRate};
     static const std::uint32_t channels{2};
     void run();
     void seekForward(const float v = 1.0f);

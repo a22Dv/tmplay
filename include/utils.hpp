@@ -31,7 +31,8 @@
     E(FFMPEG_CONTEXT, "FFmpeg encountered an error regarding context allocation.")                                     \
     E(FFMPEG_NOSTREAM, "FFmpeg could not find a stream in the file.")                                                  \
     E(FFMPEG_ALLOC, "FFmpeg encountered a memory allocation failure.")                                                 \
-    E(FFMPEG_FILTER, "FFmpeg encountered an error during a filter graph operation.")
+    E(FFMPEG_FILTER, "FFmpeg encountered an error during a filter graph operation.")                                   \
+    E(FFMPEG_RUNTIME, "FFmpeg encountered a runtime error.")
 
 namespace tml {
 

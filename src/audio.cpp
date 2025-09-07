@@ -1,4 +1,5 @@
-#include "utils.hpp"
+#define MINIAUDIO_IMPLEMENTATION
+#include <miniaudio.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -11,20 +12,25 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/frame.h>
+#include <libavutil/mathematics.h>
 #include <libavutil/mem.h>
 #include <libavutil/opt.h>
 #include <libavutil/samplefmt.h>
 }
-#define MINIAUDIO_IMPLEMENTATION
 
 #include <array>
+#include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <vector>
 
-#include "miniaudio.h"
 #include "player.hpp"
+#include "utils.hpp"
 
 namespace tml {
 
@@ -38,7 +44,18 @@ Audio::~Audio() {
 
 namespace detail {
 
+/**
+    TODO:
+    Major memory leaks during exception paths.
+    For now focus on the non-exception paths, but refactor
+    afterwards once this works and meets expectations.
+*/
+enum class DecoderStatus : std::uint8_t { SUCCESS, END_OF_FILE, EXCEPTION, AGAIN, END_OF_BUFFER };
 class Decoder {
+
+    // isEof refers to the entire pipeline reaching the end, signaledEof is an internal boolean for managing state.
+    bool isEof{};
+    bool signaledEof{};
     bool isValid{};
     static constexpr float latencyMs{1000.0f / 20.0f};
     static constexpr const char *filterDescription{"aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo"};
@@ -48,13 +65,14 @@ class Decoder {
     AVFilterContext *bSrcContext{};
     AVFilterGraph *filterGraph{};
     AVStream *audioStream{};
+    AVPacket *packet{};
     AVFrame *frame{};
     AVFrame *filteredFrame{};
-    AVPacket *packet{};
     int aStreamIdx{-1};
     fs::path filepath{};
     std::chrono::duration<float> timestamp{};
     std::vector<std::int16_t> stagingBuffer{};
+    std::size_t stagingBufferIdx{};
 
     void openCodecContext() {
         /*
@@ -172,21 +190,106 @@ class Decoder {
         avfilter_inout_free(&in);
         avfilter_inout_free(&out);
     }
+    /*
+        AVRational is a fraction, which is why despite the formula being implemented as a * (b / c),
+        where b is the destination unit, and c is the source unit, because these are fractions,
+        we have to reverse them. In that a * ((1 / c) / (1 / b)) = a * (b / c). This is a simplification
+        however, but that's the gist of it.
+    */
+    std::chrono::duration<float> fromStreamTicks(const int ticks) {
+        // Convert from AVStream.time_base ticks to AV_TIME_BASE ticks. Then convert back to seconds.
+        std::int64_t timeBase{av_rescale_q(ticks, audioStream->time_base, AVRational{1, AV_TIME_BASE})};
+        return std::chrono::duration<float>{static_cast<float>(timeBase) / AV_TIME_BASE};
+    }
+    std::int64_t toStreamTicks(const std::chrono::duration<float> time) {
+        // Convert from seconds to AV_TIME_BASE ticks. Then from that to AVStream.time_base ticks.
+        return av_rescale_q(
+            static_cast<std::int64_t>(time.count()) * AV_TIME_BASE, AVRational{1, AV_TIME_BASE}, audioStream->time_base
+        );
+    }
+    /*
+        The difference between retrieve* and getNew* functions
+        are that the retrieve* functions are "dumb". They will
+        only take whatever can be taken and fail if it can't.
+        getNew always guarantees it can supply through
+        the pipeline until the end.
+    */
+    DecoderStatus retrieveFrame() {
+        int ret{};
+        if ((ret = avcodec_receive_frame(codecContext, frame)) < 0) {
+            if (ret == AVERROR(EAGAIN)) {
+                return DecoderStatus::AGAIN;
+            }
+            if (ret == AVERROR_EOF) {
+                return DecoderStatus::END_OF_FILE;
+            }
+            return DecoderStatus::EXCEPTION;
+        }
+        return DecoderStatus::SUCCESS;
+    }
+    DecoderStatus retrieveFFrame() {
+        int ret{};
+        if ((ret = av_buffersink_get_frame(bSinkContext, filteredFrame)) < 0) {
+            if (ret == AVERROR(EAGAIN)) {
+                return DecoderStatus::AGAIN;
+            }
+            if (ret == AVERROR_EOF) {
+                return DecoderStatus::END_OF_FILE;
+            }
+            return DecoderStatus::EXCEPTION;
+        }
+        return DecoderStatus::SUCCESS;
+    }
+    DecoderStatus retrieveSample(std::int16_t &sample) {
+        if (stagingBufferIdx < stagingBuffer.size()) {
+            sample = stagingBuffer[stagingBufferIdx++];
+            return DecoderStatus::SUCCESS;
+        }
+        stagingBuffer.clear();
+        stagingBufferIdx = 0;
+        return DecoderStatus::END_OF_BUFFER;
+    };
+    void pushToStagingBuffer() {
+        std::int16_t* frameData{reinterpret_cast<std::int16_t*>(filteredFrame->data[0])};
+        std::size_t samplesInFrame{filteredFrame->nb_samples * Audio::channels};
+        stagingBuffer.insert(stagingBuffer.end(), &frameData[0], &frameData[samplesInFrame]);
+    };
+    /// TODO:
+    DecoderStatus getNewFFrame() {
+        return DecoderStatus::EXCEPTION;
+    }
+    DecoderStatus getNewFrame() {
+        return DecoderStatus::EXCEPTION;
+    }
+    DecoderStatus getNewSample(std::int16_t &sample) {
+        return DecoderStatus::EXCEPTION;
+    };
 
   public:
     bool isDecoderValid() { return isValid; };
     const fs::path &getPath() const { return filepath; };
     const std::vector<std::int16_t> &getBuffer() const { return stagingBuffer; };
-
-    /**
-        TODO: Main Demux->Decode->Filter loop.
-        Check for possible bugs.
-    */
-    void decodeAt(std::chrono::duration<float> trgtTime) { timestamp = trgtTime; };
-    void decodeNext() {
-        timestamp += std::chrono::duration<float>(latencyMs / 1000.0f);
-        return;
+    void decodeAt(std::chrono::duration<float> trgtTime) {
+        avcodec_flush_buffers(codecContext);
+        while ((av_frame_unref(filteredFrame), true) && retrieveFFrame() == DecoderStatus::SUCCESS) {
+            continue;
+        }
+        const std::int64_t targetTicks{toStreamTicks(trgtTime)};
+        av_seek_frame(formatContext, aStreamIdx, targetTicks, 0);
+        while (filteredFrame->pts < targetTicks) {
+            getNewFFrame();
+        }
     };
+    Decoder &operator>>(int16_t &sample) {
+        DecoderStatus status{getNewSample(sample)};
+        require(status != DecoderStatus::EXCEPTION, Error::FFMPEG_DECODER);
+        if (status != DecoderStatus::SUCCESS) {
+            sample = 0;
+        }
+        return *this;
+    }
+    explicit operator bool() const { return isEof; }
+    bool eof() const { return isEof; };
     Decoder() {};
     Decoder(const fs::path &path) : filepath{path} {
         /*
