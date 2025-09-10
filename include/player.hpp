@@ -70,6 +70,9 @@ struct AudioState {
     std::atomic<bool> looped{};
     std::atomic<bool> playback{};
     std::atomic<float> volume{};
+    std::atomic<std::size_t> wIdx{};
+    std::atomic<std::size_t> rIdx{};
+    std::vector<std::int16_t> buffer{};
 
     // Mutex-protected.
     std::size_t commandW{};

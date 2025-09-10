@@ -13,7 +13,6 @@
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
-
 #include "player.hpp"
 #include "utils.hpp"
 
@@ -25,6 +24,8 @@ namespace JSON = nlohmann;
 
 namespace detail {
 
+/// @brief Scans the paths from a given list of paths to find audio files
+/// and returns a vector containing the paths to those audio files.
 std::vector<fs::path> scanPaths(const std::vector<fs::path> &paths) {
     // clang-format off
     static std::unordered_set<std::string> supportedExtensions{
@@ -51,6 +52,8 @@ std::vector<fs::path> scanPaths(const std::vector<fs::path> &paths) {
     return scannedPaths;
 }
 
+/// @brief Merges new entries and existing ones, removing those not found in new entries and adding those
+/// not found in new entries but not in the existing entries.
 std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std::vector<Entry> &existingEntries) {
     std::unordered_map<fs::path, Entry> existing{[&] {
         std::unordered_map<fs::path, Entry> existing{};
@@ -72,6 +75,7 @@ std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std
 
 }; // namespace detail
 
+/// @brief Constructor.
 Player::Player() {
 
     // File default initialization.
@@ -119,13 +123,14 @@ Player::Player() {
     outputStreamData << JSON::json(fileEntries).dump(4) << std::endl;
 }
 
+/// @brief Player entry point.
 void Player::run() {
     SetConsoleOutputCP(CP_UTF8);
     aud.run();
-    for (Entry &entry : fileEntries) {
+    for (const auto &entry : fileEntries) {
         std::cout << entry.u8filePath << std::endl;
         aud.playEntry(entry, config.defaultVolume / 100.0f);
-        aud.seekTo(40.0f);
+        aud.seekTo(50.0f);
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
 }
