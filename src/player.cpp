@@ -18,6 +18,30 @@
 
 #pragma comment(lib, "Shell32.lib")
 
+/**
+    TODO:
+    Implement looping logic in callback class.
+    Draft UI/UX for application.
+    Expand Player class.
+    Cache decoder for next track (QoL).
+
+    ROADMAP:
+    Full TUI :
+        - Mainly keyboard-based but allows:
+        - Scroll-based seeking
+        - Mouse/Arrow keys navigation, play/pause
+        - Dragging audio controls, toggle mute, looping, shuffling.
+        - yt-dlp integration
+    Playlists.
+    Audio visualization, a variety of modes.
+    -----------------------------
+    AI integration
+    Auto-generated playlists based on:
+        Time of day
+        Past patterns
+        Audio fingerprints
+*/
+
 namespace tml {
 
 namespace JSON = nlohmann;
@@ -127,11 +151,17 @@ Player::Player() {
 void Player::run() {
     SetConsoleOutputCP(CP_UTF8);
     aud.run();
+    int i{};
     for (const auto &entry : fileEntries) {
+        if (i < 3) {
+            ++i;
+            continue;
+        }
         std::cout << entry.u8filePath << std::endl;
         aud.playEntry(entry, config.defaultVolume / 100.0f);
-        aud.seekTo(50.0f);
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        aud.toggleLooping();
+        aud.seekTo(150.0f);
+        std::this_thread::sleep_for(std::chrono::seconds(100));
     }
 }
 

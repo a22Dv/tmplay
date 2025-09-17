@@ -89,9 +89,10 @@ class Audio {
     void sendCommand(const Command command);
 
   public:
-    static const std::uint32_t sampleRate{48'000};
+    static constexpr std::uint32_t sampleRate{48'000};
     static constexpr std::chrono::duration<float> samplePeriod{1 / sampleRate};
-    static const std::uint32_t channels{2};
+    static constexpr std::uint32_t channels{2};
+    static constexpr std::uint32_t sampleBufferSize{static_cast<uint32_t>(sampleRate * channels * 0.05)};
     AudioState &getState() { return state; };
     void run();
     void seekTo(const float v = 0.0f);

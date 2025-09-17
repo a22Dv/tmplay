@@ -30,20 +30,13 @@ extern "C" {
 #include <memory>
 #include <mutex>
 
-#include <thread>
 #include "player.hpp"
 #include "utils.hpp"
+#include <thread>
 
-/**
-    TODO:
-    Implement ring buffer for audio class.
-    Implement looping logic in callback class.
-    Draft UI/UX for application.
-    Expand Player class.
-*/
 namespace tml {
 
-/// @brief Constructor.
+/// Constructor.
 Audio::~Audio() {
     state.terminate.store(true);
     state.conVar.notify_one();
@@ -65,7 +58,7 @@ using AVFilterContextOP = observer_ptr<AVFilterContext>;
 
 enum class DecoderStatus : std::uint8_t { SUCCESS, END_OF_FILE, EXCEPTION, AGAIN, END_OF_BUFFER };
 
-/// @brief Audio decoder using FFmpeg underneath.
+/// Audio decoder using FFmpeg underneath.
 class Decoder {
     int aStreamIdx{-1};
     bool filterGraphEof{};
@@ -86,7 +79,7 @@ class Decoder {
     AVFrameUP filteredFrame{};
     static constexpr const char *filterDescription{"aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo"};
 
-    /// @brief Sets up the current Decoder's codecContext.
+    /// Sets up the current Decoder's codecContext.
     void openCodecContext() {
         /*
             Find the most suitable audio stream within formatContext,
@@ -113,7 +106,7 @@ class Decoder {
         audioStream.reset(stream);
     }
 
-    /// @brief Initializes the current Decoder's filterGraph. 
+    /// Initializes the current Decoder's filterGraph.
     void initFilterGraph() {
         /*
             Initializes the filter graph pipeline.
@@ -182,14 +175,14 @@ class Decoder {
         however, but that's the gist of it.
     */
 
-    /// @brief Converts the stream's ticks in AVStream.time_base to floating-point seconds.
+    /// Converts the stream's ticks in AVStream.time_base to floating-point seconds.
     std::chrono::duration<float> fromStreamTicks(const int ticks) {
         // Convert from AVStream.time_base ticks to AV_TIME_BASE ticks. Then convert back to seconds.
         std::int64_t timeBase{av_rescale_q(ticks, audioStream->time_base, AVRational{1, AV_TIME_BASE})};
         return std::chrono::duration<float>{static_cast<float>(timeBase) / AV_TIME_BASE};
     }
 
-    /// @brief Converts from floating-point seconds to the current stream's AVStream.time_base.
+    /// Converts from floating-point seconds to the current stream's AVStream.time_base.
     std::int64_t toStreamTicks(const std::chrono::duration<float> time) {
         // Convert from seconds to AV_TIME_BASE ticks. Then from that to AVStream.time_base ticks.
         return av_rescale_q(
@@ -204,7 +197,7 @@ class Decoder {
         the pipeline until the end.
     */
 
-    /// @brief Retrieves a frame from the current decoder.
+    /// Retrieves a frame from the current decoder.
     DecoderStatus retrieveFrame() noexcept {
         int ret{};
         if ((ret = avcodec_receive_frame(codecContext.get(), frame.get())) < 0) {
@@ -219,7 +212,7 @@ class Decoder {
         return DecoderStatus::SUCCESS;
     }
 
-    /// @brief Retrives a processed frame from the current filter graph.
+    /// Retrives a processed frame from the current filter graph.
     DecoderStatus retrieveFFrame() noexcept {
         int ret{};
         if ((ret = av_buffersink_get_frame(bSinkContext.get(), filteredFrame.get())) < 0) {
@@ -234,7 +227,7 @@ class Decoder {
         return DecoderStatus::SUCCESS;
     }
 
-    /// @brief Gets a new frame from the current decoder.
+    /// Gets a new frame from the current decoder.
     DecoderStatus getNewFrame() noexcept {
         int ffRet{};
         DecoderStatus ret{};
@@ -251,11 +244,14 @@ class Decoder {
             if ((ffRet = av_read_frame(formatContext.get(), packet.get())) < 0) {
                 if (ffRet == AVERROR_EOF) {
                     packetEof = true;
+
+                    // Signal decoder for EOF.
                     avcodec_send_packet(codecContext.get(), nullptr);
                     continue;
                 }
                 return DecoderStatus::EXCEPTION;
             }
+            // Discard packets that don't belong to our set stream.
             if (packet->stream_index != aStreamIdx) {
                 continue;
             }
@@ -263,7 +259,7 @@ class Decoder {
         }
     }
 
-    /// @brief Gets a new frame from the current filter graph.
+    /// Gets a new frame from the current filter graph.
     DecoderStatus getNewFFrame() noexcept {
         int ffret{};
         DecoderStatus ret{};
@@ -290,7 +286,7 @@ class Decoder {
         }
     }
 
-    /// @brief Gets a new sample from the current AVFrame. Gets a new frame if needed.
+    /// Gets a new sample from the current AVFrame. Gets a new frame if needed.
     DecoderStatus getNewSample(std::int16_t &sample) {
         DecoderStatus ret{};
         std::size_t sampleCount{filteredFrame->nb_samples * Audio::channels};
@@ -315,14 +311,13 @@ class Decoder {
     };
 
   public:
-
-    /// @brief True if Decoder is in a valid state.
+    /// True if Decoder is in a valid state.
     bool isDecoderValid() { return isValid; };
 
-    /// @brief Returns the path of the file the current stream being executed belongs to.
+    /// Returns the path of the file the current stream being executed belongs to.
     const fs::path &getPath() const { return filepath; };
 
-    /// @brief Decodes starting from a specific timesstamp.
+    /// Decodes starting from a specific timesstamp.
     void decodeAt(std::chrono::duration<float> trgtTime) {
         const std::int64_t targetTicks{toStreamTicks(trgtTime)};
         av_seek_frame(formatContext.get(), aStreamIdx, targetTicks, 0);
@@ -339,7 +334,7 @@ class Decoder {
         } while (filteredFrame->pts < targetTicks);
     };
 
-    /// @brief Operator overload to extract one sample from the current frame.
+    /// Operator overload to extract one sample from the current frame.
     Decoder &operator>>(int16_t &sample) {
         DecoderStatus status{getNewSample(sample)};
         require(status != DecoderStatus::EXCEPTION, Error::FFMPEG_DECODER);
@@ -350,13 +345,13 @@ class Decoder {
     }
     explicit operator bool() const { return packetEof && frameEof && filterGraphEof; }
 
-    /// @brief True if the current stream being run has reached EOF.
+    /// True if the current stream being run has reached EOF.
     bool eof() const { return packetEof && frameEof && filterGraphEof; };
 
-    /// @brief Default constructor.
+    /// Default constructor.
     Decoder() {};
 
-    /// @brief Construct decoder from audio file.
+    /// Construct decoder from audio file.
     Decoder(const fs::path &path)
         : filepath{path}, frame{av_frame_alloc()}, filteredFrame{av_frame_alloc()}, packet{av_packet_alloc()} {
         /*
@@ -380,7 +375,7 @@ class Decoder {
     };
 };
 
-/// @brief Pairs an audio instance with a Decoder instance, along with a mutex.
+/// Pairs an audio instance with a Decoder instance, along with a mutex.
 /// purely a utility struct.
 struct AudioDecoder {
     Decoder &decoder;
@@ -389,28 +384,28 @@ struct AudioDecoder {
     AudioDecoder(Decoder &decoder, Audio &aud) : decoder{decoder}, aud{aud} {};
 };
 
-/// @brief Miniaudio callback.
+/// Miniaudio callback.
 void callback(ma_device *device, void *pOut, const void *pIn, unsigned int framesPerChannel) {
     AudioDecoder &ad{*static_cast<AudioDecoder *>(device->pUserData)};
     AudioState &state{ad.aud.getState()};
     const std::size_t totalSamples{framesPerChannel * Audio::channels};
     std::int16_t *out{static_cast<std::int16_t *>(pOut)};
-    {
-        std::lock_guard<std::mutex> lock{ad.mutex};
-        if (state.muted.load() || !state.playback.load() || ad.decoder.eof() || !ad.decoder.isDecoderValid()) {
-            std::fill(out, out + totalSamples, 0);
-            return;
+    if (state.muted.load() || !state.playback.load() || ad.decoder.eof() || !ad.decoder.isDecoderValid()) {
+        std::fill(out, out + totalSamples, 0);
+        return;
+    }
+    for (std::size_t i{}; i < totalSamples; ++i) {
+        if (state.rIdx == state.wIdx) {
+            out[i] = 0;
+            continue;
         }
-        for (std::size_t i{}; i < totalSamples; ++i) {
-            ad.decoder >> out[i];
-            out[i] = static_cast<std::int16_t>(
-                std::clamp(out[i] * state.volume, static_cast<float>(INT16_MIN), static_cast<float>(INT16_MAX))
-            );
-        }
+        out[i] = state.buffer[state.rIdx];
+        state.rIdx = (state.rIdx + 1) % Audio::sampleBufferSize;
     }
     state.timestamp.store(
         state.timestamp.load() + std::chrono::duration<float>(framesPerChannel / static_cast<float>(Audio::sampleRate))
     );
+    state.conVar.notify_one();
 }
 
 } // namespace detail
@@ -419,9 +414,10 @@ Audio::Audio() {
     if (av_log_get_level() != AV_LOG_ERROR) {
         av_log_set_level(AV_LOG_ERROR);
     }
+    state.buffer.resize(Audio::sampleBufferSize);
 }
 
-/// @brief Producer thread for the audio class.
+/// Producer thread for the audio class.
 void Audio::pthread() {
 
     detail::Decoder decoder{};
@@ -491,8 +487,16 @@ void Audio::pthread() {
         {
             std::unique_lock<std::mutex> lock{state.mutex};
             state.conVar.wait(lock, [&] {
-                return state.terminate.load() || state.commandR != state.commandW || state.wIdx + 1 != state.rIdx;
+                return state.terminate.load() || state.commandR != state.commandW ||
+                       ((state.wIdx + 1 % Audio::sampleBufferSize) != state.rIdx);
             });
+            if (decoder.eof() && state.looped) {
+                decoder = std::move(detail::Decoder{decoder.getPath()});
+            }
+            while ((state.wIdx + 1) % Audio::sampleBufferSize != state.rIdx) {
+                decoder.isDecoderValid() ? (decoder >> state.buffer[state.wIdx], 0) : (state.buffer[state.wIdx] = 0);
+                state.wIdx = (state.wIdx + 1) % Audio::sampleBufferSize;
+            }
             while (state.commandR != state.commandW) {
                 pendingCommands[pendingCommandsCount] = state.commandQueue[state.commandR];
                 state.commandR = state.commandR < comQueueLen - 1 ? state.commandR + 1 : 0;
@@ -510,7 +514,7 @@ void Audio::pthread() {
     ma_device_uninit(&device);
 }
 
-/// @brief Sends a command from the main thread to the producer thread.
+/// Sends a command from the main thread to the producer thread.
 void Audio::sendCommand(const Command command) {
     {
         std::lock_guard<std::mutex> lock{state.mutex};
@@ -524,7 +528,7 @@ void Audio::sendCommand(const Command command) {
     state.conVar.notify_one();
 }
 
-/// @brief Audio class entry point.
+/// Audio class entry point.
 void Audio::run() {
     producerThread = std::thread([this] { this->pthread(); });
 }
@@ -542,7 +546,7 @@ void Audio::volSet(const float v) { sendCommand(Command{CommandType::VOL_SET, v}
 void Audio::playEntry(const Entry &entry, const float v) { sendCommand(Command{CommandType::PLAY_ENTRY, v, entry}); }
 void Audio::toggleMute() { sendCommand(Command{CommandType::TOGGLE_MUTE}); }
 void Audio::togglePlayback() { sendCommand(Command{CommandType::TOGGLE_PLAYBACK}); }
-void Audio::toggleLooping() { sendCommand(Command{CommandType::TOGGLE_PLAYBACK}); }
+void Audio::toggleLooping() { sendCommand(Command{CommandType::TOGGLE_LOOP}); }
 void Audio::stopCurrent() { sendCommand(Command{CommandType::STOP_CURRENT}); }
 
 } // namespace tml
