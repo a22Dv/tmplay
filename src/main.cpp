@@ -6,6 +6,7 @@
 #include "utils.hpp"
 
 int main() {
+    SetConsoleOutputCP(CP_UTF8);
     try {
         tml::Player p{};
         p.run();

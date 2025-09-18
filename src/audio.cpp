@@ -29,10 +29,10 @@ extern "C" {
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include "player.hpp"
 #include "utils.hpp"
-#include <thread>
 
 namespace tml {
 
@@ -476,7 +476,6 @@ void Audio::pthread() {
     lambdas[szT(CommandType::PLAY_ENTRY)] = [this, &ad](const Command &command) {
         std::lock_guard<std::mutex> lock{ad.mutex};
         state.playback.store(true);
-        state.volume.store(command.fVal);
         ad.decoder = detail::Decoder{command.ent.asPath()};
     };
     lambdas[szT(CommandType::STOP_CURRENT)] = [this](const Command &command) { state.playback.store(false); };
@@ -529,7 +528,9 @@ void Audio::sendCommand(const Command command) {
 }
 
 /// Audio class entry point.
-void Audio::run() {
+void Audio::run(const bool loopDefault, const std::uint8_t volume) {
+    state.looped = loopDefault;
+    state.volume = volume;
     producerThread = std::thread([this] { this->pthread(); });
 }
 
@@ -543,7 +544,7 @@ void Audio::seekBackward(const float v) { sendCommand(Command{CommandType::SEEK_
 void Audio::volUp(const float v) { sendCommand(Command{CommandType::VOL_UP, v}); }
 void Audio::volDown(const float v) { sendCommand(Command{CommandType::VOL_DOWN, v}); }
 void Audio::volSet(const float v) { sendCommand(Command{CommandType::VOL_SET, v}); }
-void Audio::playEntry(const Entry &entry, const float v) { sendCommand(Command{CommandType::PLAY_ENTRY, v, entry}); }
+void Audio::playEntry(const Entry &entry) { sendCommand(Command{CommandType::PLAY_ENTRY, 0.0f, entry}); }
 void Audio::toggleMute() { sendCommand(Command{CommandType::TOGGLE_MUTE}); }
 void Audio::togglePlayback() { sendCommand(Command{CommandType::TOGGLE_PLAYBACK}); }
 void Audio::toggleLooping() { sendCommand(Command{CommandType::TOGGLE_LOOP}); }

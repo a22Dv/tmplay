@@ -1,16 +1,23 @@
 #include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <nlohmann/json.hpp>
 #include <ostream>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/node.hpp>
+#include <ftxui/screen/screen.hpp>
+#include <ftxui/screen/terminal.hpp>
+
+#include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include "player.hpp"
@@ -20,8 +27,8 @@
 
 /**
     TODO:
-    Implement looping logic in callback class.
     Draft UI/UX for application.
+    Allow Audio class to show the last few samples as an FFT graph.
     Expand Player class.
     Cache decoder for next track (QoL).
 
@@ -145,24 +152,34 @@ Player::Player() {
     std::ofstream outputStreamData{dataPath, std::ios::out | std::ios::trunc};
     require(outputStreamData.is_open(), Error::WRITE);
     outputStreamData << JSON::json(fileEntries).dump(4) << std::endl;
+
+    state.isLooping = config.loopByDefault;
+    state.volume = config.defaultVolume;
 }
 
 /// @brief Player entry point.
 void Player::run() {
-    SetConsoleOutputCP(CP_UTF8);
-    aud.run();
-    int i{};
-    for (const auto &entry : fileEntries) {
-        if (i < 3) {
-            ++i;
-            continue;
-        }
-        std::cout << entry.u8filePath << std::endl;
-        aud.playEntry(entry, config.defaultVolume / 100.0f);
-        aud.toggleLooping();
-        aud.seekTo(150.0f);
-        std::this_thread::sleep_for(std::chrono::seconds(100));
-    }
+    aud.run(state.isLooping, state.volume);
+    ftxui::ScreenInteractive screen{ftxui::ScreenInteractive::Fullscreen()};
+    screen.Loop(getRoot());
+}
+
+namespace detail {
+
+bool catchInput(ftxui::Event event) { 
+    return false; 
+}
+
+} // namespace detail
+
+ftxui::Component Player::root() {
+    return ftxui::Renderer([&]{return ftxui::window(ftxui::text(""), ftxui::text("Hello World!"));});
+}
+
+ftxui::Component Player::getRoot() {
+    ftxui::Component cRoot{root()};
+    cRoot |= ftxui::CatchEvent(detail::catchInput);
+    return cRoot;
 }
 
 } // namespace tml

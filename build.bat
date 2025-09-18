@@ -1,3 +1,3 @@
 @echo off
-cmake --preset wclang-debug
+:: cmake --preset wclang-debug
 cmake  --build build/debug

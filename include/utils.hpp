@@ -8,7 +8,6 @@
 */
 #ifdef _WIN32
 #include <Windows.h>
-
 #include <ShlObj.h>
 #else
 #error "UNSUPPORTED OS."

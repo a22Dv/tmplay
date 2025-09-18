@@ -23,5 +23,6 @@ target_sources(tmplay PRIVATE
     "${CMAKE_SOURCE_DIR}/src/audio.cpp"
 )
 target_compile_options(tmplay PRIVATE /EHsc)
+target_compile_definitions(tmplay PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(tmplay PRIVATE "${CMAKE_SOURCE_DIR}/include/" ${MINIAUDIO} ${FFMPEG_INCLUDE_DIRS})
 target_link_libraries(tmplay PRIVATE ftxui::dom ftxui::screen ftxui::component yaml-cpp::yaml-cpp nlohmann_json::nlohmann_json ${FFMPEG_LIBRARIES})

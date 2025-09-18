@@ -5,10 +5,12 @@
 #include <cstddef>
 #include <filesystem>
 #include <mutex>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <ftxui/component/component.hpp>
+#include <nlohmann/json.hpp>
 
 #include "utils.hpp"
 
@@ -94,14 +96,14 @@ class Audio {
     static constexpr std::uint32_t channels{2};
     static constexpr std::uint32_t sampleBufferSize{static_cast<uint32_t>(sampleRate * channels * 0.05)};
     AudioState &getState() { return state; };
-    void run();
+    void run(const bool loopDefault = false, const std::uint8_t volume = 100);
     void seekTo(const float v = 0.0f);
     void seekForward(const float v = 1.0f);
     void seekBackward(const float v = 1.0f);
     void volUp(const float v = 1.0f);
     void volDown(const float v = 1.0f);
     void volSet(const float v = 1.0f);
-    void playEntry(const Entry &entry, const float v = 1.0f);
+    void playEntry(const Entry &entry);
     void toggleMute();
     void togglePlayback();
     void toggleLooping();
@@ -114,6 +116,11 @@ class Audio {
     ~Audio();
 };
 
+/**
+    TODO:
+    Subject to change.
+*/
+
 struct PlayerConfig {
     bool visualization{};
     bool loopByDefault{};
@@ -121,13 +128,40 @@ struct PlayerConfig {
     std::uint8_t defaultVolume{};
 };
 
+struct Playlist {
+    std::string playlistName{};
+    std::vector<Entry> playlistEntries{};
+    Playlist();
+    Playlist(std::string name, std::vector<Entry> entries) : playlistName{name}, playlistEntries{entries} {};
+};
+
+enum class PlayerView {
+    PLAY,
+    HOME,
+};
+
+struct PlayerState {
+    PlayerView view{PlayerView::HOME};
+    std::size_t cPlayingTrack{};
+    std::size_t cPlaylist{};
+    std::chrono::duration<float> timestamp{};
+    bool isPlaying{};
+    bool isMuted{};
+    bool isLooping{};
+    float volume{};
+    float varSeekMultiplier{1.0f};
+};
+
 class Player {
+    PlayerState state{};
     PlayerConfig config{};
     Audio aud{};
     fs::path execPath{getExecDirectory()};
     fs::path configPath{execPath / "config.yaml"};
     fs::path dataPath{execPath / "data.json"};
     std::vector<Entry> fileEntries{};
+    ftxui::Component root();
+    ftxui::Component getRoot();
 
   public:
     Player();
