@@ -28,10 +28,12 @@ struct Entry {
     std::vector<float> sig{};
     std::uint32_t timesPlayed{};
     std::uint32_t timesSkipped{};
-    std::uint64_t dateCreated{};
+    std::uint64_t timeModified{};
     std::uint64_t lastPlayed{};
     float avgPlaytime{};
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Entry, u8filePath, sig, timesPlayed, timesSkipped, avgPlaytime);
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(
+        Entry, u8filePath, sig, timesPlayed, timesSkipped, timeModified, lastPlayed, avgPlaytime
+    );
     fs::path asPath() const {
         return fs::path(std::u8string{reinterpret_cast<const char8_t *>(u8filePath.data()), u8filePath.length()});
     };
@@ -90,6 +92,7 @@ struct AudioState {
 
 class Audio {
     AudioState state{};
+    float playingDuration{};
     std::thread producerThread{};
     void pthread();
     void sendCommand(const Command command);
@@ -100,6 +103,7 @@ class Audio {
     static constexpr std::uint32_t channels{2};
     static constexpr std::uint32_t sampleBufferSize{static_cast<uint32_t>(sampleRate * channels * 0.05)};
     AudioState &getState() { return state; };
+    float getDuration() const { return playingDuration; };
     void run(const bool loopDefault = false, const std::uint8_t volume = 100);
     void seekTo(const float v = 0.0f);
     void seekForward(const float v = 1.0f);
@@ -147,25 +151,26 @@ struct PlaylistCompact {
     PlaylistCompact(std::vector<EntryId> pEntries) : playlistEntries{pEntries} {};
 };
 
-enum class PlayerView {
-    PLAY,
-    HOME,
-};
+enum class PlayerView { PLAY, HOME, NONE };
 
 struct PlayerState {
-    PlayerView view{PlayerView::HOME};
-    std::size_t cPlayingTrack{};
-    std::size_t cPlaylist{};
-    std::chrono::duration<float> timestamp{};
+    float timestamp{};
     bool isPlaying{};
     bool isMuted{};
     bool isLooping{};
     float volume{};
-    float varSeekMultiplier{1.0f};
 
     // UI
+    int view{static_cast<int>(PlayerView::HOME)};
     int homePlaylistSel{};
     int homeRecentlyAddedSel{};
+    int playPlaylistSel{};
+    int uiVolume{};
+    bool visualization{};
+    float sliderSeekPos{};
+    PlaylistCompact cPlaylist{};
+    std::vector<EntryId> selectorRecentlyAddedMapping{};
+    std::vector<EntryId> selectorPlaylistMapping{};
 };
 
 struct PlayerData {
@@ -185,40 +190,75 @@ struct InterfaceElements {
     ftxui::Element playlistHeader{ftxui::text("Playlists")};
     ftxui::Element recAddedHeader{ftxui::text("Recently Added")};
     ftxui::Element appIcon{ftxui::text("󰬁󰫺󰫽󰫹󰫮󰬆  ")};
-    const char* homeText{"Home  "};
-    const char* quitText{"Quit 󰈆 "};
-     const char* songIcon{"󰎇"};
-    const char* playlistIcon{"󰼄 "};
+    ftxui::Element play{ftxui::text(" ")};
+    ftxui::Element pause{ftxui::text(" ")};
+    ftxui::Element mute{ftxui::text(" ")};
+    ftxui::Element volOff{ftxui::text(" ")};
+    ftxui::Element volMed{ftxui::text(" ")};
+    ftxui::Element volHigh{ftxui::text(" ")};
+    const char* waveform{"󰥛 "};
+    const char* loop{" "};
+    const char *playNext{" "};
+    const char *playPrev{" "};
+    const char *homeText{"Home  "};
+    const char *quitText{"Quit 󰈆 "};
+    const char *songIcon{"󰎇"};
+    const char *playlistIcon{"󰼄 "};
 };
 
-class UserInterface; 
+class UserInterface;
 
 struct InterfaceComponents {
-    UserInterface& linkedInterface;
+    UserInterface &linkedInterface;
+
+    // Home components.
+    ftxui::Component qHomeBtn{};
+    ftxui::Component hHomeBtn{};
     std::vector<std::string> recAddedEntries{};
+    PlaylistCompact recAddedPlaylist{};
     std::vector<std::string> playlistsEntries{};
-    ftxui::Component qBtn{};
-    ftxui::Component hBtn{};
-    ftxui::Component qhContainer{};
     ftxui::Component recAddedList{};
     ftxui::Component playlistsList{};
+    ftxui::Component homeContainer{};
+
+    // Play components.
+    std::vector<std::string> pListsSidebarEntries{};
+    ftxui::Component qPlayBtn{};
+    ftxui::Component hPlayBtn{};
+    ftxui::Component playTrackBtn{};
+    ftxui::Component playNextBtn{};
+    ftxui::Component playPrevBtn{};
+    ftxui::Component seekSlider{};
+    ftxui::Component loopBtn{};
+    ftxui::Component muteBtn{};
+    ftxui::Component volumeSlider{};
+    ftxui::Component visualBtn{};
+    ftxui::Component audioView{};
+    ftxui::Component sidebar{};
+    ftxui::Component playContainer{};
+
+    // Root.
     ftxui::Component rootContainer{};
-    InterfaceComponents(UserInterface& ui, InterfaceElements& elements) : linkedInterface{ui} {};
+
+    InterfaceComponents(UserInterface &ui, InterfaceElements &elements) : linkedInterface{ui} {};
     void init();
-    
+    void initHome();
+    void initPlay();
 };
 
 class Player;
 
 class UserInterface {
     Player &player;
+    std::size_t serial{};
     InterfaceElements elements{};
     InterfaceComponents components{*this, this->elements};
     ftxui::ScreenInteractive scr{ftxui::ScreenInteractive::Fullscreen()};
-    ftxui::Component playRoot();
-    ftxui::Component homeRoot();
+    ftxui::Element playRoot();
+    ftxui::Element homeRoot();
     ftxui::Component getRoot();
-    bool onEvent(const ftxui::Event& event);
+    bool onHomeEvent(const ftxui::Event &event);
+    bool onPlayEvent(const ftxui::Event &event);
     friend struct InterfaceComponents;
 
   public:

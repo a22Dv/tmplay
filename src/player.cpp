@@ -90,7 +90,12 @@ std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std
         if (existing.contains(path)) {
             out.push_back(existing[path]);
         } else {
-            out.push_back(Entry{path});
+            std::chrono::seconds time{
+                std::chrono::duration_cast<std::chrono::seconds>(fs::last_write_time(path).time_since_epoch())
+            };
+            Entry e{path};
+            e.timeModified = time.count();
+            out.push_back(e);
         }
     }
     return out;
@@ -101,7 +106,7 @@ std::vector<PlaylistCompact> getCompacted(std::vector<Playlist> &pLists, std::ve
     std::vector<PlaylistCompact> compacts{};
     std::unordered_map<std::string, std::uint64_t> map{};
     EntryId idx{};
-    for (const auto& entry : fileEntries) {
+    for (const auto &entry : fileEntries) {
         map[entry.u8filePath] = idx++;
     }
     for (const auto &pList : pLists) {
@@ -185,7 +190,7 @@ Player::Player() {
     // Set from default config.
     state.isLooping = config.loopByDefault;
     state.volume = config.defaultVolume;
-    state.view = PlayerView::HOME;
+    state.view = static_cast<int>(PlayerView::HOME);
 }
 
 // Player entry point.
@@ -194,8 +199,6 @@ void Player::run() {
     ui.run();
 }
 
-void Player::quit() {
-    ui.quit();
-}
+void Player::quit() { ui.quit(); }
 
 } // namespace tml

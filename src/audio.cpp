@@ -65,6 +65,7 @@ class Decoder {
     bool frameEof{};
     bool packetEof{};
     bool isValid{};
+    float duration{};
     fs::path filepath{};
     std::size_t cSampleIdx{};
     std::chrono::duration<float> timestamp{};
@@ -104,6 +105,11 @@ class Decoder {
         require(ret >= 0, Error::FFMPEG_DECODER);
         aStreamIdx = aStreamIdxL;
         audioStream.reset(stream);
+        if (formatContext->duration != AV_NOPTS_VALUE) {
+            duration = fromStreamTicks(formatContext->duration).count();
+        } else {
+            duration = 0.0f;
+        }
     }
 
     /// Initializes the current Decoder's filterGraph.
@@ -314,6 +320,8 @@ class Decoder {
     /// True if Decoder is in a valid state.
     bool isDecoderValid() { return isValid; };
 
+    float getDuration() { return duration; };
+
     /// Returns the path of the file the current stream being executed belongs to.
     const fs::path &getPath() const { return filepath; };
 
@@ -477,6 +485,7 @@ void Audio::pthread() {
         std::lock_guard<std::mutex> lock{ad.mutex};
         state.playback.store(true);
         ad.decoder = detail::Decoder{command.ent.asPath()};
+        playingDuration = ad.decoder.getDuration();
     };
     lambdas[szT(CommandType::STOP_CURRENT)] = [this](const Command &command) { state.playback.store(false); };
 
