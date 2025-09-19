@@ -9,14 +9,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include <ftxui/component/component.hpp>
-#include <ftxui/component/event.hpp>
-#include <ftxui/component/screen_interactive.hpp>
-#include <ftxui/dom/elements.hpp>
-#include <ftxui/dom/node.hpp>
-#include <ftxui/screen/screen.hpp>
-#include <ftxui/screen/terminal.hpp>
-
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 
@@ -55,8 +47,8 @@ namespace JSON = nlohmann;
 
 namespace detail {
 
-/// @brief Scans the paths from a given list of paths to find audio files
-/// and returns a vector containing the paths to those audio files.
+// Scans the paths from a given list of paths to find audio files
+// and returns a vector containing the paths to those audio files.
 std::vector<fs::path> scanPaths(const std::vector<fs::path> &paths) {
     // clang-format off
     static std::unordered_set<std::string> supportedExtensions{
@@ -83,13 +75,13 @@ std::vector<fs::path> scanPaths(const std::vector<fs::path> &paths) {
     return scannedPaths;
 }
 
-/// @brief Merges new entries and existing ones, removing those not found in new entries and adding those
-/// not found in new entries but not in the existing entries.
+// Merges new entries and existing ones, removing those not found in new entries and adding those
+// not found in new entries but not in the existing entries.
 std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std::vector<Entry> &existingEntries) {
     std::unordered_map<fs::path, Entry> existing{[&] {
         std::unordered_map<fs::path, Entry> existing{};
         for (const auto &entry : existingEntries) {
-            existing[entry.u8filePath] = entry;
+            existing[entry.asPath()] = entry;
         }
         return existing;
     }()};
@@ -104,22 +96,40 @@ std::vector<Entry> setEntries(const std::vector<fs::path> &newEntries, const std
     return out;
 }
 
+// Maps the repeated path data to compact IDs.
+std::vector<PlaylistCompact> getCompacted(std::vector<Playlist> &pLists, std::vector<Entry> &fileEntries) {
+    std::vector<PlaylistCompact> compacts{};
+    std::unordered_map<std::string, std::uint64_t> map{};
+    EntryId idx{};
+    for (const auto& entry : fileEntries) {
+        map[entry.u8filePath] = idx++;
+    }
+    for (const auto &pList : pLists) {
+        std::vector<EntryId> entryIndices{};
+        for (const auto &path : pList.playlistEntries) {
+            entryIndices.push_back(map[path]);
+        }
+        PlaylistCompact pCompact{PlaylistCompact{entryIndices}};
+        pCompact.playlistName = pList.playlistName;
+        compacts.push_back(pCompact);
+    }
+    return compacts;
+}
+
 }; // namespace detail
 
-/// @brief Constructor.
+// Constructor.
 Player::Player() {
 
     // File default initialization.
-    const bool dExists{fs::exists(dataPath)};
-    const bool cExists{fs::exists(configPath)};
-    if (!dExists) {
-        std::ofstream outStream{dataPath, std::ios::out | std::ios::trunc};
+    if (!fs::exists(paths.dataPath)) {
+        std::ofstream outStream{paths.dataPath, std::ios::out | std::ios::trunc};
         require(outStream.is_open(), Error::WRITE);
         JSON::json data{};
         outStream << data << std::endl;
     }
-    if (!cExists) {
-        std::ofstream outStream{configPath, std::ios::out | std::ios::trunc};
+    if (!fs::exists(paths.configPath)) {
+        std::ofstream outStream{paths.configPath, std::ios::out | std::ios::trunc};
         require(outStream.is_open(), Error::WRITE);
         YAML::Node defaultConfig{};
         const std::u8string mpath{getUserMusicDirectory().u8string()};
@@ -131,12 +141,12 @@ Player::Player() {
         outStream << defaultConfig << std::endl;
     }
 
-    std::ifstream inputStreamConfig{configPath};
-    std::ifstream inputStreamData{dataPath};
+    std::ifstream inputStreamConfig{paths.configPath};
+    std::ifstream inputStreamData{paths.dataPath};
     require(inputStreamConfig.is_open(), Error::READ);
     require(inputStreamData.is_open(), Error::READ);
     YAML::Node yamlConfig{YAML::Load(inputStreamConfig)};
-    JSON::json data(JSON::json::parse(inputStreamData));
+    JSON::json jsonData(JSON::json::parse(inputStreamData));
 
     config.defaultVolume = yamlConfig["default-volume"].as<std::uint8_t>();
     config.visualization = yamlConfig["visualization"].as<bool>();
@@ -146,40 +156,46 @@ Player::Player() {
     std::transform(rscanPaths.begin(), rscanPaths.end(), std::back_inserter(config.scanPaths), [](const auto &e) {
         return fs::path{std::u8string{reinterpret_cast<const char8_t *>(e.data()), e.length()}};
     });
-    fileEntries = detail::setEntries(
-        detail::scanPaths(config.scanPaths), data.is_null() ? std::vector<Entry>{} : data.get<std::vector<Entry>>()
+    data.fileEntries = detail::setEntries(
+        detail::scanPaths(config.scanPaths),
+        jsonData.is_null() ? std::vector<Entry>{} : jsonData.get<std::vector<Entry>>()
     );
-    std::ofstream outputStreamData{dataPath, std::ios::out | std::ios::trunc};
+    std::ofstream outputStreamData{paths.dataPath, std::ios::out | std::ios::trunc};
     require(outputStreamData.is_open(), Error::WRITE);
-    outputStreamData << JSON::json(fileEntries).dump(4) << std::endl;
+    outputStreamData << JSON::json(data.fileEntries).dump(4) << std::endl;
 
+    // Playlist default initialization.
+    if (!fs::exists(paths.playlistsPath)) {
+        std::ofstream out{paths.playlistsPath};
+        std::vector<std::string> entryPaths{};
+        std::transform(
+            data.fileEntries.begin(), data.fileEntries.end(), std::back_inserter(entryPaths),
+            [](const auto &e) { return e.u8filePath; }
+        );
+        Playlist pl{std::string{"All"}, entryPaths};
+        out << JSON::json{pl}.dump(4) << std::endl;
+    }
+
+    // Load the playlists, map to indices in fileEntries.
+    std::ifstream inPLists{paths.playlistsPath};
+    require(inPLists.is_open(), Error::READ);
+    std::vector<Playlist> pLists{JSON::json::parse(inPLists).get<std::vector<Playlist>>()};
+    data.playlists = detail::getCompacted(pLists, data.fileEntries);
+
+    // Set from default config.
     state.isLooping = config.loopByDefault;
     state.volume = config.defaultVolume;
+    state.view = PlayerView::HOME;
 }
 
-/// @brief Player entry point.
+// Player entry point.
 void Player::run() {
     aud.run(state.isLooping, state.volume);
-    ftxui::ScreenInteractive screen{ftxui::ScreenInteractive::Fullscreen()};
-    screen.Loop(getRoot());
+    ui.run();
 }
 
-namespace detail {
-
-bool catchInput(ftxui::Event event) { 
-    return false; 
-}
-
-} // namespace detail
-
-ftxui::Component Player::root() {
-    return ftxui::Renderer([&]{return ftxui::window(ftxui::text(""), ftxui::text("Hello World!"));});
-}
-
-ftxui::Component Player::getRoot() {
-    ftxui::Component cRoot{root()};
-    cRoot |= ftxui::CatchEvent(detail::catchInput);
-    return cRoot;
+void Player::quit() {
+    ui.quit();
 }
 
 } // namespace tml

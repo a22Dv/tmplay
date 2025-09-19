@@ -10,6 +10,8 @@
 #include <vector>
 
 #include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include "utils.hpp"
@@ -20,17 +22,19 @@ constexpr std::size_t sigSize{8};
 constexpr std::size_t comQueueLen{5};
 constexpr std::size_t cStyleBufferLimit{512};
 
+using EntryId = std::uint64_t;
 struct Entry {
     std::string u8filePath{};
     std::vector<float> sig{};
     std::uint32_t timesPlayed{};
     std::uint32_t timesSkipped{};
+    std::uint64_t dateCreated{};
+    std::uint64_t lastPlayed{};
     float avgPlaytime{};
-
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Entry, u8filePath, sig, timesPlayed, timesSkipped, avgPlaytime);
     fs::path asPath() const {
         return fs::path(std::u8string{reinterpret_cast<const char8_t *>(u8filePath.data()), u8filePath.length()});
     };
-    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Entry, u8filePath, sig, timesPlayed, timesSkipped, avgPlaytime);
     Entry() { sig.resize(sigSize); };
     Entry(const fs::path &path) {
         std::u8string u8str{path.u8string()};
@@ -130,9 +134,17 @@ struct PlayerConfig {
 
 struct Playlist {
     std::string playlistName{};
-    std::vector<Entry> playlistEntries{};
-    Playlist();
-    Playlist(std::string name, std::vector<Entry> entries) : playlistName{name}, playlistEntries{entries} {};
+    std::vector<std::string> playlistEntries{};
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE(Playlist, playlistName, playlistEntries);
+    Playlist() {};
+    Playlist(std::string name, std::vector<std::string> entries) : playlistName{name}, playlistEntries{entries} {};
+};
+
+struct PlaylistCompact {
+    std::string playlistName{};
+    std::vector<EntryId> playlistEntries{};
+    PlaylistCompact() {};
+    PlaylistCompact(std::vector<EntryId> pEntries) : playlistEntries{pEntries} {};
 };
 
 enum class PlayerView {
@@ -150,22 +162,85 @@ struct PlayerState {
     bool isLooping{};
     float volume{};
     float varSeekMultiplier{1.0f};
+
+    // UI
+    int homePlaylistSel{};
+    int homeRecentlyAddedSel{};
+};
+
+struct PlayerData {
+    std::vector<Entry> fileEntries{};
+    std::vector<PlaylistCompact> playlists{};
+};
+
+struct PlayerPaths {
+    fs::path execPath{getExecDirectory()};
+    fs::path configPath{execPath / "config.yaml"};
+    fs::path dataPath{execPath / "data.json"};
+    fs::path playlistsPath{execPath / "playlists.json"};
+};
+
+struct InterfaceElements {
+    ftxui::Element windowTitle{ftxui::text("")};
+    ftxui::Element playlistHeader{ftxui::text("Playlists")};
+    ftxui::Element recAddedHeader{ftxui::text("Recently Added")};
+    ftxui::Element appIcon{ftxui::text("󰬁󰫺󰫽󰫹󰫮󰬆  ")};
+    const char* homeText{"Home  "};
+    const char* quitText{"Quit 󰈆 "};
+     const char* songIcon{"󰎇"};
+    const char* playlistIcon{"󰼄 "};
+};
+
+class UserInterface; 
+
+struct InterfaceComponents {
+    UserInterface& linkedInterface;
+    std::vector<std::string> recAddedEntries{};
+    std::vector<std::string> playlistsEntries{};
+    ftxui::Component qBtn{};
+    ftxui::Component hBtn{};
+    ftxui::Component qhContainer{};
+    ftxui::Component recAddedList{};
+    ftxui::Component playlistsList{};
+    ftxui::Component rootContainer{};
+    InterfaceComponents(UserInterface& ui, InterfaceElements& elements) : linkedInterface{ui} {};
+    void init();
+    
+};
+
+class Player;
+
+class UserInterface {
+    Player &player;
+    InterfaceElements elements{};
+    InterfaceComponents components{*this, this->elements};
+    ftxui::ScreenInteractive scr{ftxui::ScreenInteractive::Fullscreen()};
+    ftxui::Component playRoot();
+    ftxui::Component homeRoot();
+    ftxui::Component getRoot();
+    bool onEvent(const ftxui::Event& event);
+    friend struct InterfaceComponents;
+
+  public:
+    void run();
+    void quit();
+    explicit UserInterface(Player &player) : player{player} {};
 };
 
 class Player {
     PlayerState state{};
     PlayerConfig config{};
+    PlayerData data{};
+    PlayerPaths paths{};
     Audio aud{};
-    fs::path execPath{getExecDirectory()};
-    fs::path configPath{execPath / "config.yaml"};
-    fs::path dataPath{execPath / "data.json"};
-    std::vector<Entry> fileEntries{};
-    ftxui::Component root();
-    ftxui::Component getRoot();
+    UserInterface ui{*this};
+    friend class UserInterface;
+    friend struct InterfaceComponents;
 
   public:
     Player();
     void run();
+    void quit();
 };
 
 } // namespace tml

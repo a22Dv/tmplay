@@ -21,6 +21,7 @@ target_sources(tmplay PRIVATE
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/player.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui.cpp"
 )
 target_compile_options(tmplay PRIVATE /EHsc)
 target_compile_definitions(tmplay PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
