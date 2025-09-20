@@ -14,6 +14,7 @@ struct InterfaceText {
     static constexpr const char *appIcon{"󰬁󰫺󰫽󰫹󰫮󰬆  "};
     static constexpr const char *play{"   "};
     static constexpr const char *pause{"   "};
+    static constexpr const char *activeSong{" "};
     static constexpr const char *mute{"   "};
     static constexpr const char *volOff{"  "};
     static constexpr const char *volMed{"  "};
@@ -35,6 +36,7 @@ struct InterfaceText {
     static constexpr const char *noAutorun{" 󰐓  "};
     static constexpr const char *renderSlow{"    "};
     static constexpr const char *renderFast{" 󰍜  "};
+    static constexpr const char *shuffle{"   "};
 };
 
 class Player;
@@ -75,6 +77,7 @@ class Interface {
     ftxui::Component home();
     ftxui::Component play();
     ftxui::Component header();
+    void generateSidebar();
     void populateRecentlyPlayed();
     void populatePlaylists();
     void newPlayState(const std::vector<EntryId>& tracks, const int initialTrack = 0);

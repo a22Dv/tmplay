@@ -77,6 +77,13 @@ struct AudioState {
     
     // Lock-free.
     std::atomic<std::chrono::duration<float>> timestamp{};
+
+    /**
+        NOTE:
+        ended has to be initialized to false.
+        autoplay feature depends on this set to false 
+        so as to not immediately play the first track.
+    */
     std::atomic<bool> ended{};
     std::atomic<bool> terminate{};
     std::atomic<bool> muted{};

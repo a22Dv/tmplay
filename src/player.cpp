@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <ostream>
@@ -7,7 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <chrono>
+
 
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -19,20 +20,12 @@
 
 /**
     TODO:
-    Draft UI/UX for application.
-    Allow Audio class to show the last few samples as an FFT graph.
-    Expand Player class.
-    Cache decoder for next track (QoL).
-
+    - Allow Audio class to show the last few samples as an FFT graph.
+    - Create UI canvas, function to draw the visualization (Multi-mode).
+    - Shuffling.
     ROADMAP:
-    Full TUI :
-        - Mainly keyboard-based but allows:
-        - Scroll-based seeking
-        - Mouse/Arrow keys navigation, play/pause
-        - Dragging audio controls, toggle mute, looping, shuffling.
-        - yt-dlp integration
-    Playlists.
-    Audio visualization, a variety of modes.
+    - YT-DLP integration
+    - Better playlists.
     -----------------------------
     AI integration
     Auto-generated playlists based on:
@@ -193,8 +186,6 @@ void Player::run() {
     ui.run();
 }
 
-void Player::quit() { 
-    ui.quit();
-}
+void Player::quit() { ui.quit(); }
 
 } // namespace tml
