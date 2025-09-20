@@ -23,20 +23,25 @@ struct InterfaceText {
     static constexpr const char *noLoop{" 󰑗  "};
     static constexpr const char *playNext{"   "};
     static constexpr const char *playPrev{"   "};
-    static constexpr const char *homeText{"Home  "};
-    static constexpr const char *quitText{"Quit 󰈆 "};
+    static constexpr const char *homeText{"  "};
+    static constexpr const char *quitText{" 󰈆 "};
     static constexpr const char *songIcon{"󰎇"};
     static constexpr const char *playlistIcon{"󰼄 "};
     static constexpr const char *selectedMarker{">"};
     static constexpr const char *noVis{"   "};
     static constexpr const char *seekNext{"   "};
     static constexpr const char *seekPrev{"   "};
+    static constexpr const char *autorun{" 󰐑  "};
+    static constexpr const char *noAutorun{" 󰐓  "};
+    static constexpr const char *renderSlow{"    "};
+    static constexpr const char *renderFast{" 󰍜  "};
 };
 
 class Player;
 
 struct InterfaceState {
     int currentView{};
+    bool renderFast{true};
 };
 
 struct HomeState {
@@ -55,6 +60,7 @@ struct PlayState {
     int trackSelected{};
     bool playback{};
     bool loop{};
+    bool autorun{true};
     bool vis{};
     bool muted{};
 };
@@ -72,6 +78,7 @@ class Interface {
     void populateRecentlyPlayed();
     void populatePlaylists();
     void newPlayState(const std::vector<EntryId>& tracks, const int initialTrack = 0);
+    void customEvents();
   public:
     void run();
     void quit();

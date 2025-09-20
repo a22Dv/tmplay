@@ -150,6 +150,14 @@ ftxui::Component Interface::play() {
     ftxui::Component visBtn{detail::toggleButton(InterfaceText::vis, InterfaceText::noVis, pState.vis, [&] {
         pState.vis = !pState.vis;
     })};
+    ftxui::Component autorunBtn{detail::toggleButton(
+        InterfaceText::autorun, InterfaceText::noAutorun, pState.autorun, [this] { pState.autorun = !pState.autorun; }
+    )};
+    ftxui::Component renderFastBtn{
+        detail::toggleButton(InterfaceText::renderFast, InterfaceText::renderSlow, uiState.renderFast, [this] {
+            uiState.renderFast = !uiState.renderFast;
+        })
+    };
 
     // Mute button has custom logic as it also reacts to the volume level of the application.
     ftxui::ButtonOption muteOpt{ftxui::ButtonOption::Ascii()};
@@ -193,7 +201,7 @@ ftxui::Component Interface::play() {
     });
     ftxui::Component controls{ftxui::Container::Vertical(
         {ftxui::Container::Horizontal({prevBtn, pState.playbackBtn, nextBtn, muteBtn}),
-         ftxui::Container::Horizontal({seekPrevBtn, seekNextBtn, loopBtn, visBtn})}
+         ftxui::Container::Horizontal({renderFastBtn, seekPrevBtn, seekNextBtn, loopBtn, autorunBtn, visBtn})}
     )};
 
     /// TODO: Finish canvas.
@@ -214,10 +222,10 @@ ftxui::Component Interface::play() {
                 ftxui::center,
             ftxui::separatorEmpty(),
             ftxui::hbox(
-                seekPrevBtn->Render(), ftxui::separatorEmpty(),
+                renderFastBtn->Render(), ftxui::separatorEmpty(), seekPrevBtn->Render(), ftxui::separatorEmpty(),
                 ftxui::text(detail::formatTimestamp(player.aud.getState().timestamp.load().count())),
                 ftxui::separatorEmpty(), seekNextBtn->Render(), ftxui::separatorEmpty(), loopBtn->Render(),
-                ftxui::separatorEmpty(), visBtn->Render()
+                ftxui::separatorEmpty(), autorunBtn->Render(), ftxui::separatorEmpty(), visBtn->Render()
             ) | ftxui::xflex |
                 ftxui::center
         )};
@@ -250,15 +258,21 @@ void Interface::run() {
     // Render at 20 FPS.
     ftxui::Loop loop{ftxui::Loop{&scr, root()}};
     while (!loop.HasQuitted()) {
-        loop.RunOnce();
-        std::this_thread::sleep_for(std::chrono::milliseconds{50});
-        // Auto-run.
-
-        scr.PostEvent(ftxui::Event::Custom);
+        uiState.renderFast ? loop.RunOnce() : loop.RunOnceBlocking();
+        std::this_thread::sleep_for(std::chrono::milliseconds{33});
+        uiState.renderFast ? scr.PostEvent(ftxui::Event::Custom) : (void)0;
+        customEvents();
     }
 }
 
 void Interface::quit() { scr.Exit(); }
+
+void Interface::customEvents() {
+    if (pState.autorun && player.aud.getState().ended.load()) {
+        pState.trackSelected = std::clamp(pState.trackSelected + 1, 0, static_cast<int>(pState.dspTracks.size() - 1));
+        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+    }
+}
 
 void Interface::populatePlaylists() {
     std::transform(

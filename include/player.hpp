@@ -74,8 +74,10 @@ struct AudioMetadata {
 };
 
 struct AudioState {
+    
     // Lock-free.
     std::atomic<std::chrono::duration<float>> timestamp{};
+    std::atomic<bool> ended{};
     std::atomic<bool> terminate{};
     std::atomic<bool> muted{};
     std::atomic<bool> looped{};

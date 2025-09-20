@@ -31,7 +31,6 @@ extern "C" {
 #include <mutex>
 #include <thread>
 
-
 #include "player.hpp"
 #include "utils.hpp"
 
@@ -491,6 +490,7 @@ void Audio::pthread() {
         ad.decoder = detail::Decoder{command.ent.asPath()};
         metadata.duration = ad.decoder.getDuration();
         state.timestamp.store(std::chrono::duration<float>(0.0f));
+        state.ended.store(false);
     };
     lambdas[szT(CommandType::STOP_CURRENT)] = [this](const Command &command) { state.playback.store(false); };
 
@@ -501,12 +501,15 @@ void Audio::pthread() {
             std::unique_lock<std::mutex> lock{state.mutex};
             state.conVar.wait(lock, [&] {
                 return state.terminate.load() || state.commandR != state.commandW ||
-                       (((state.wIdx + 1) % Audio::sampleBufferSize) != state.rIdx) ||
-                       decoder.eof() && state.looped.load();
+                       (((state.wIdx + 1) % Audio::sampleBufferSize) != state.rIdx) || decoder.eof();
             });
-            if (decoder.eof() && state.looped.load()) {
-                decoder = std::move(detail::Decoder{decoder.getPath()});
-                state.timestamp.store(std::chrono::duration<float>(0.0f));
+            if (decoder.eof()) {
+                state.ended.store(true);
+                if (state.looped.load()) {
+                    decoder = std::move(detail::Decoder{decoder.getPath()});
+                    state.timestamp.store(std::chrono::duration<float>(0.0f));
+                    state.ended.store(false);
+                }
             }
             while ((state.wIdx + 1) % Audio::sampleBufferSize != state.rIdx) {
                 decoder.isDecoderValid() ? (decoder >> state.buffer[state.wIdx], 0) : (state.buffer[state.wIdx] = 0);
