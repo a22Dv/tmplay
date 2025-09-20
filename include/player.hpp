@@ -100,6 +100,7 @@ struct AudioState {
     std::array<Command, comQueueLen> commandQueue{};
     std::condition_variable conVar{};
     std::mutex mutex{};
+    EntryId currentEntry{};
 };
 
 class Audio {

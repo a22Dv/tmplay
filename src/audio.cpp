@@ -471,17 +471,25 @@ void Audio::pthread() {
     };
     lambdas[szT(CommandType::SEEK_TO)] = [this, &ad](const Command &command) {
         std::lock_guard<std::mutex> lock{ad.mutex};
-        state.timestamp = std::chrono::duration<float>(command.fVal);
+        state.timestamp.store(std::chrono::duration<float>(std::clamp(command.fVal, 0.0f, metadata.duration)));
         ad.decoder.decodeAt(state.timestamp);
     };
     lambdas[szT(CommandType::SEEK_BACKWARD)] = [this, &ad](const Command &command) {
         std::lock_guard<std::mutex> lock{ad.mutex};
-        state.timestamp = state.timestamp.load() - std::chrono::duration<float>(command.fVal);
+        state.timestamp.store(
+            std::chrono::duration<float>(
+                std::clamp(state.timestamp.load().count() - command.fVal, 0.0f, metadata.duration)
+            )
+        );
         ad.decoder.decodeAt(state.timestamp);
     };
     lambdas[szT(CommandType::SEEK_FORWARD)] = [this, &ad](const Command &command) {
         std::lock_guard<std::mutex> lock{ad.mutex};
-        state.timestamp = state.timestamp.load() + std::chrono::duration<float>(command.fVal);
+        state.timestamp.store(
+            std::chrono::duration<float>(
+                std::clamp(state.timestamp.load().count() + command.fVal, 0.0f, metadata.duration)
+            )
+        );
         ad.decoder.decodeAt(state.timestamp);
     };
     lambdas[szT(CommandType::PLAY_ENTRY)] = [this, &ad](const Command &command) {

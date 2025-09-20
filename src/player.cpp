@@ -21,8 +21,13 @@
 /**
     TODO:
     - Allow Audio class to show the last few samples as an FFT graph.
-    - Create UI canvas, function to draw the visualization (Multi-mode).
-    - Shuffling.
+    - Create UI canvas, function to draw the visualization.
+        - Create a custom ftxui::Node class for the visualizer.
+        - Implement rescaling logic, aspect ratio keeping.
+        - Implement actual FFT->Frequency graph->Image logic.
+    - Global basic title search functionality, songs and playlists.
+    - State management when switching between playlists. 
+      Switching from playlist->home->same playlist must preserve state.
     ROADMAP:
     - YT-DLP integration
     - Better playlists.

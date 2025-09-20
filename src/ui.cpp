@@ -110,7 +110,7 @@ ftxui::Component Interface::home() {
                 newPlayState(player.data.playlists[hState.playlistSelected].playlistEntries);
                 pState.playbackBtn->TakeFocus();
                 pState.playback = true;
-                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+                syncedPlayEntry();
             });
         },
         false
@@ -122,7 +122,7 @@ ftxui::Component Interface::home() {
                 newPlayState(hState.recAddedMap, hState.rAddedSelected);
                 pState.playbackBtn->TakeFocus();
                 pState.playback = true;
-                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+                syncedPlayEntry();
             });
         }
     )};
@@ -142,13 +142,13 @@ ftxui::Component Interface::play() {
         int nVal{pState.trackSelected + 1};
         pState.trackSelected = std::clamp(nVal, 0, static_cast<int>(pState.dspTracks.size()));
         pState.playback = true;
-        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+        syncedPlayEntry();
     })};
     ftxui::Component prevBtn{detail::button(InterfaceText::playPrev, [this] {
         int nVal{pState.trackSelected - 1};
         pState.trackSelected = std::clamp(nVal, 0, static_cast<int>(pState.dspTracks.size()));
         pState.playback = true;
-        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+        syncedPlayEntry();
     })};
     ftxui::Component seekNextBtn{detail::button(InterfaceText::seekNext, [this] { player.aud.seekForward(5); })};
     ftxui::Component seekPrevBtn{detail::button(InterfaceText::seekPrev, [this] { player.aud.seekBackward(5); })};
@@ -178,7 +178,7 @@ ftxui::Component Interface::play() {
         pState.trackSelected = 0;
         generateSidebar();
         if (pState.playback) {
-            player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+            syncedPlayEntry();
         }
     })};
     // Mute button has custom logic as it also reacts to the volume level of the application.
@@ -227,34 +227,35 @@ ftxui::Component Interface::play() {
              {visBtn, renderFastBtn, seekPrevBtn, seekNextBtn, loopBtn, autorunBtn, shuffleBtn}
          )}
     )};
-
-    /// TODO: Finish canvas.
-    /// ftxui::Component canvas{detail::button("", [this] {})};
+    /// TODO: Visualizer canvas.
     ftxui::Component mainContainer{
         ftxui::Container::Vertical({ftxui::Container::Horizontal({pState.sidebarWrapper}), controls})
     };
     return ftxui::Renderer(mainContainer, [=, this] {
         std::string dspName{pState.dspTracks[pState.trackSelected]};
-        ftxui::Element controls{ftxui::vbox(
-            ftxui::hbox(
-                prevBtn->Render(), ftxui::separatorEmpty(), pState.playbackBtn->Render(), ftxui::separatorEmpty(),
-                ftxui::text(std::format("{:.50}{}", dspName, dspName.length() > 50 ? "..." : "")),
-                ftxui::separatorEmpty(), nextBtn->Render(), ftxui::separatorEmpty(), muteBtn->Render(),
+        ftxui::Element controls{
+            ftxui::vbox(
+                ftxui::hbox(
+                    prevBtn->Render(), ftxui::separatorEmpty(), pState.playbackBtn->Render(), ftxui::separatorEmpty(),
+                    ftxui::text(std::format("{:.50}{}", dspName, dspName.length() > 50 ? "..." : "")),
+                    ftxui::separatorEmpty(), nextBtn->Render(), ftxui::separatorEmpty(), muteBtn->Render(),
+                    ftxui::separatorEmpty(),
+                    ftxui::text(std::format("{}", static_cast<int>(player.aud.getState().volume.load() * 100)))
+                ) | ftxui::xflex |
+                    ftxui::center,
                 ftxui::separatorEmpty(),
-                ftxui::text(std::format("{}", static_cast<int>(player.aud.getState().volume.load() * 100)))
-            ) | ftxui::xflex |
-                ftxui::center,
-            ftxui::separatorEmpty(),
-            ftxui::hbox(
-                visBtn->Render(), ftxui::separatorEmpty(), renderFastBtn->Render(), ftxui::separatorEmpty(),
-                seekPrevBtn->Render(), ftxui::separatorEmpty(),
-                ftxui::text(detail::formatTimestamp(player.aud.getState().timestamp.load().count())),
-                ftxui::separatorEmpty(), seekNextBtn->Render(), ftxui::separatorEmpty(), loopBtn->Render(),
-                ftxui::separatorEmpty(), autorunBtn->Render(), ftxui::separatorEmpty(), shuffleBtn->Render()
-            ) | ftxui::xflex |
-                ftxui::center
-        )};
+                ftxui::hbox(
+                    visBtn->Render(), ftxui::separatorEmpty(), renderFastBtn->Render(), ftxui::separatorEmpty(),
+                    seekPrevBtn->Render(), ftxui::separatorEmpty(),
+                    ftxui::text(detail::formatTimestamp(player.aud.getState().timestamp.load().count())),
+                    ftxui::separatorEmpty(), seekNextBtn->Render(), ftxui::separatorEmpty(), loopBtn->Render(),
+                    ftxui::separatorEmpty(), autorunBtn->Render(), ftxui::separatorEmpty(), shuffleBtn->Render()
+                ) | ftxui::xflex |
+                    ftxui::center
+            )
+        };
         ftxui::Element body{
+            /// TODO: Where filler() is, is the location of the canvas.
             ftxui::hbox(ftxui::filler(), pState.sidebarWrapper->Render() | ftxui::yframe) | ftxui::xflex
         };
         ftxui::Element main{
@@ -295,7 +296,7 @@ void Interface::quit() { scr.Exit(); }
 void Interface::customEvents() {
     if (pState.autorun && player.aud.getState().ended.load()) {
         pState.trackSelected = std::clamp(pState.trackSelected + 1, 0, static_cast<int>(pState.dspTracks.size() - 1));
-        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+        syncedPlayEntry();
     }
 }
 
@@ -338,18 +339,18 @@ void Interface::generateSidebar() {
         detail::menu(
             InterfaceText::songIcon, InterfaceText::selectedMarker, pState.trackSelected, pState.dspTracks,
             [this] {
-                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+                syncedPlayEntry();
                 pState.playbackBtn->TakeFocus();
             },
             true, ftxui::Color::GrayLight, ftxui::Color::GrayDark,
             [this](const ftxui::EntryState &est) {
-                bool activeSelected{est.index == pState.trackSelected};
+                bool activeSelected{est.index == player.aud.getState().currentEntry};
                 std::string marker{std::format("     {}", InterfaceText::selectedMarker)};
                 ftxui::Element text{ftxui::text(
                     std::format(
                         "{} {} {:.50}{}",
                         est.focused ? (activeSelected ? InterfaceText::activeSong : marker)
-                                    : (activeSelected ? InterfaceText::activeSong  : "      "),
+                                    : (activeSelected ? InterfaceText::activeSong : "      "),
                         InterfaceText::songIcon, est.label, est.label.length() > 50 ? "..." : ""
                     )
                 )};
@@ -379,6 +380,12 @@ void Interface::newPlayState(const std::vector<EntryId> &tracks, const int initi
         );
     }
     generateSidebar();
+}
+
+void Interface::syncedPlayEntry() {
+    /// NOTE: Only place getState() is used to be modified.
+    player.aud.getState().currentEntry = pState.trackSelected;
+    player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
 }
 
 } // namespace tml

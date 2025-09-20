@@ -82,6 +82,7 @@ class Interface {
     void populatePlaylists();
     void newPlayState(const std::vector<EntryId>& tracks, const int initialTrack = 0);
     void customEvents();
+    void syncedPlayEntry();
   public:
     void run();
     void quit();
