@@ -35,6 +35,7 @@
 
 namespace tml {
 
+using EntryId = std::uint64_t;
 namespace fs = std::filesystem;
 
 enum class Error : std::uint8_t {

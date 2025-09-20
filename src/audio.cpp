@@ -31,6 +31,7 @@ extern "C" {
 #include <mutex>
 #include <thread>
 
+
 #include "player.hpp"
 #include "utils.hpp"
 
@@ -400,6 +401,9 @@ void callback(ma_device *device, void *pOut, const void *pIn, unsigned int frame
     std::int16_t *out{static_cast<std::int16_t *>(pOut)};
     if (state.muted.load() || !state.playback.load() || ad.decoder.eof() || !ad.decoder.isDecoderValid()) {
         std::fill(out, out + totalSamples, 0);
+        if (ad.decoder.eof() && state.looped.load()) {
+            state.conVar.notify_one();
+        }
         return;
     }
     for (std::size_t i{}; i < totalSamples; ++i) {
@@ -407,7 +411,7 @@ void callback(ma_device *device, void *pOut, const void *pIn, unsigned int frame
             out[i] = 0;
             continue;
         }
-        out[i] = state.buffer[state.rIdx];
+        out[i] = state.buffer[state.rIdx] * state.volume.load();
         state.rIdx = (state.rIdx + 1) % Audio::sampleBufferSize;
     }
     state.timestamp.store(
@@ -450,20 +454,20 @@ void Audio::pthread() {
         state.looped.store(nVal);
     };
     lambdas[szT(CommandType::TOGGLE_MUTE)] = [this](const Command &command) {
-        const bool nVal{state.muted.load()};
+        const bool nVal{!state.muted.load()};
         state.muted.store(nVal);
     };
     lambdas[szT(CommandType::TOGGLE_PLAYBACK)] = [this](const Command &command) {
-        const bool nVal{state.playback.load()};
+        const bool nVal{!state.playback.load()};
         state.playback.store(nVal);
     };
     lambdas[szT(CommandType::VOL_SET)] = [this](const Command &command) { state.volume.store(command.fVal); };
     lambdas[szT(CommandType::VOL_UP)] = [this](const Command &command) {
-        const float nVal{state.volume.load() + command.fVal};
+        const float nVal{std::clamp(state.volume.load() + command.fVal, 0.0f, 1.0f)};
         state.volume.store(nVal);
     };
     lambdas[szT(CommandType::VOL_DOWN)] = [this](const Command &command) {
-        const float nVal{state.volume.load() - command.fVal};
+        const float nVal{std::clamp(state.volume.load() - command.fVal, 0.0f, 1.0f)};
         state.volume.store(nVal);
     };
     lambdas[szT(CommandType::SEEK_TO)] = [this, &ad](const Command &command) {
@@ -485,7 +489,8 @@ void Audio::pthread() {
         std::lock_guard<std::mutex> lock{ad.mutex};
         state.playback.store(true);
         ad.decoder = detail::Decoder{command.ent.asPath()};
-        playingDuration = ad.decoder.getDuration();
+        metadata.duration = ad.decoder.getDuration();
+        state.timestamp.store(std::chrono::duration<float>(0.0f));
     };
     lambdas[szT(CommandType::STOP_CURRENT)] = [this](const Command &command) { state.playback.store(false); };
 
@@ -496,10 +501,12 @@ void Audio::pthread() {
             std::unique_lock<std::mutex> lock{state.mutex};
             state.conVar.wait(lock, [&] {
                 return state.terminate.load() || state.commandR != state.commandW ||
-                       ((state.wIdx + 1 % Audio::sampleBufferSize) != state.rIdx);
+                       (((state.wIdx + 1) % Audio::sampleBufferSize) != state.rIdx) ||
+                       decoder.eof() && state.looped.load();
             });
-            if (decoder.eof() && state.looped) {
+            if (decoder.eof() && state.looped.load()) {
                 decoder = std::move(detail::Decoder{decoder.getPath()});
+                state.timestamp.store(std::chrono::duration<float>(0.0f));
             }
             while ((state.wIdx + 1) % Audio::sampleBufferSize != state.rIdx) {
                 decoder.isDecoderValid() ? (decoder >> state.buffer[state.wIdx], 0) : (state.buffer[state.wIdx] = 0);
@@ -538,8 +545,8 @@ void Audio::sendCommand(const Command command) {
 
 /// Audio class entry point.
 void Audio::run(const bool loopDefault, const std::uint8_t volume) {
-    state.looped = loopDefault;
-    state.volume = volume;
+    state.looped.store(loopDefault);
+    state.volume.store(volume / 100.0f);
     producerThread = std::thread([this] { this->pthread(); });
 }
 

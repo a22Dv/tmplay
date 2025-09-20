@@ -1,362 +1,321 @@
-#include <algorithm>
-#include <ftxui/dom/direction.hpp>
-#include <ftxui/screen/box.hpp>
+#include <chrono>
+#include <functional>
 #include <iterator>
-#include <vector>
 
 #include <ftxui/component/component.hpp>
-#include <ftxui/component/component_options.hpp>
-#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/component/loop.hpp>
 #include <ftxui/dom/elements.hpp>
-#include <ftxui/dom/node.hpp>
 
-#include <player.hpp>
+#include "player.hpp"
+#include "ui.hpp"
 
 namespace tml {
 
-void InterfaceComponents::initHome() {
-    UserInterface &ui{linkedInterface};
+namespace detail {
 
-    // We need to sort the entries, and their index mapping accordingly
-    // so the corresponding index plays the correct file.
-    std::vector<std::pair<Entry, EntryId>> sortedEntries{};
-    EntryId idx{};
+ftxui::Component toggleButton(
+    const char *active, const char *inactive, bool &state, std::function<void()> onClick,
+    ftxui::Color colorActive = ftxui::Color::White, ftxui::Color colorInactive = ftxui::Color::GrayDark
+) {
+    ftxui::ButtonOption opt{ftxui::ButtonOption::Ascii()};
+    opt.on_click = onClick;
+    opt.transform = [colorActive, colorInactive, active, inactive, &state](const auto &est) {
+        ftxui::Element text{ftxui::text(state ? active : inactive)};
+        text |= ftxui::color(est.focused ? colorActive : colorInactive);
+        return text;
+    };
+    return ftxui::Button(opt);
+}
+
+ftxui::Component button(
+    const char *dsp, std::function<void()> onClick, ftxui::Color colorFocused = ftxui::Color::GrayLight,
+    ftxui::Color colorUnfocused = ftxui::Color::GrayDark
+) {
+    ftxui::ButtonOption opt{ftxui::ButtonOption::Ascii()};
+    opt.label = dsp;
+    opt.on_click = onClick;
+    opt.transform = [colorFocused, colorUnfocused](const auto &est) {
+        ftxui::Element text{ftxui::text(est.label)};
+        text |= ftxui::color(est.focused ? colorFocused : colorUnfocused);
+        return text;
+    };
+    return ftxui::Button(opt);
+}
+
+ftxui::Component menu(
+    const char *entryIcon, const char *marker, int &selected, std::vector<std::string> &dspList,
+    std::function<void()> onEnter, bool vertical = true, ftxui::Color colorFocused = ftxui::Color::GrayLight,
+    ftxui::Color colorUnfocused = ftxui::Color::GrayDark
+) {
+    ftxui::MenuOption opt{vertical ? ftxui::MenuOption::Vertical() : ftxui::MenuOption::Horizontal()};
+    opt.on_enter = onEnter;
+    opt.entries_option.transform = [colorFocused, colorUnfocused, entryIcon, marker](const auto &est) {
+        ftxui::Element text{ftxui::text(
+            std::format(
+                "{} {} {:.50}{}", est.focused ? marker : " ", entryIcon, est.label, est.label.length() > 50 ? "..." : ""
+            )
+        )};
+        text |= ftxui::color(est.focused ? colorFocused : colorUnfocused);
+        text |= ftxui::bgcolor(ftxui::Color::RGBA(0, 0, 0, 0));
+        return text;
+    };
+    opt.entries = &dspList;
+    opt.selected = &selected;
+    return ftxui::Menu(opt);
+}
+
+std::string formatTimestamp(const float seconds) {
+    int sec{static_cast<int>(seconds)};
+    int hours{sec / (60 * 60)};
+    int minutes{(sec % (60 * 60)) / 60};
+    int secs{sec % 60};
+    return std::format("{:02}:{:02}:{:02}", hours, minutes, secs);
+}
+
+} // namespace detail
+
+ftxui::Component Interface::header() {
+    ftxui::Component home{detail::button(InterfaceText::homeText, [this] {
+        uiState.currentView = static_cast<int>(PlayerView::HOME);
+    })};
+    ftxui::Component quit{detail::button(InterfaceText::quitText, [this] { this->player.quit(); })};
+    ftxui::Component header{ftxui::Container::Horizontal({home, quit})};
+    return ftxui::Renderer(header, [this, home, quit] {
+        auto main{ftxui::vbox(
+            ftxui::hbox(
+                ftxui::text(InterfaceText::appIcon), ftxui::filler(), home->Render(), ftxui::separatorEmpty(),
+                quit->Render()
+            ),
+            ftxui::separatorEmpty()
+        )};
+        return main | ftxui::xflex;
+    });
+}
+
+ftxui::Component Interface::home() {
+    ftxui::Component playlists{detail::menu(
+        InterfaceText::playlistIcon, InterfaceText::selectedMarker, hState.playlistSelected, hState.dspPlaylists,
+        [this] {
+            scr.Post([this] {
+                uiState.currentView = static_cast<int>(PlayerView::PLAY);
+                newPlayState(player.data.playlists[hState.playlistSelected].playlistEntries);
+                pState.playbackBtn->TakeFocus();
+                pState.playback = true;
+                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+            });
+        },
+        false
+    )};
+    ftxui::Component rAdded{detail::menu(
+        InterfaceText::songIcon, InterfaceText::selectedMarker, hState.rAddedSelected, hState.dspRecentlyAdded, [this] {
+            scr.Post([this] {
+                uiState.currentView = static_cast<int>(PlayerView::PLAY);
+                newPlayState(hState.recAddedMap, hState.rAddedSelected);
+                pState.playbackBtn->TakeFocus();
+                pState.playback = true;
+                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+            });
+        }
+    )};
+    ftxui::Component main{ftxui::Container::Vertical({playlists, rAdded})};
+    return ftxui::Renderer(main, [playlists, rAdded] {
+        ftxui::Element container{ftxui::vbox(
+            ftxui::text(InterfaceText::playlistHeader), ftxui::separatorEmpty(), playlists->Render() | ftxui::xframe,
+            ftxui::separatorEmpty(), ftxui::text(InterfaceText::recAddedHeader), ftxui::separatorEmpty(),
+            rAdded->Render() | ftxui::yframe
+        )};
+        return container | ftxui::flex;
+    });
+};
+
+ftxui::Component Interface::play() {
+    ftxui::Component nextBtn{detail::button(InterfaceText::playNext, [this] {
+        int nVal{pState.trackSelected + 1};
+        pState.trackSelected = std::clamp(nVal, 0, static_cast<int>(pState.dspTracks.size()));
+        pState.playback = true;
+        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+    })};
+    ftxui::Component prevBtn{detail::button(InterfaceText::playPrev, [this] {
+        int nVal{pState.trackSelected - 1};
+        pState.trackSelected = std::clamp(nVal, 0, static_cast<int>(pState.dspTracks.size()));
+        pState.playback = true;
+        player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+    })};
+    ftxui::Component seekNextBtn{detail::button(InterfaceText::seekNext, [this] { player.aud.seekForward(5); })};
+    ftxui::Component seekPrevBtn{detail::button(InterfaceText::seekPrev, [this] { player.aud.seekBackward(5); })};
+    ftxui::Component loopBtn{detail::toggleButton(InterfaceText::loop, InterfaceText::noLoop, pState.loop, [this] {
+        player.aud.toggleLooping();
+        pState.loop = !pState.loop;
+    })};
+    ftxui::Component visBtn{detail::toggleButton(InterfaceText::vis, InterfaceText::noVis, pState.vis, [&] {
+        pState.vis = !pState.vis;
+    })};
+
+    // Mute button has custom logic as it also reacts to the volume level of the application.
+    ftxui::ButtonOption muteOpt{ftxui::ButtonOption::Ascii()};
+    muteOpt.on_click = [this] {
+        player.aud.toggleMute();
+        pState.muted = !pState.muted;
+    };
+    muteOpt.transform = [this](const auto &est) {
+        ftxui::Element label{ftxui::text([this] {
+            float vol{player.aud.getState().volume.load()};
+            if (pState.muted || vol == 0.0f)
+                return InterfaceText::mute;
+            else if (vol < 0.3)
+                return InterfaceText::volOff;
+            else if (vol < 0.6)
+                return InterfaceText::volMed;
+            else
+                return InterfaceText::volHigh;
+        }())};
+        label |= ftxui::color(est.focused ? ftxui::Color::White : ftxui::Color::GrayDark);
+        return label;
+    };
+    ftxui::Component muteBtn{ftxui::Button(muteOpt)};
+    muteBtn |= ftxui::CatchEvent([this](const auto &e) {
+        if (e == ftxui::Event::ArrowLeft) {
+            player.aud.volDown(0.01f);
+            return true;
+        } else if (e == ftxui::Event::ArrowRight) {
+            player.aud.volUp(0.01f);
+            return true;
+        }
+        return false;
+    });
+
+    // Placeholder as the sidebar is generated programmatically.
+    ftxui::Component sidebar{ftxui::Container::Horizontal({})};
+    pState.sidebarWrapper = ftxui::Container::Horizontal({sidebar});
+    pState.playbackBtn = detail::toggleButton(InterfaceText::pause, InterfaceText::play, pState.playback, [this] {
+        player.aud.togglePlayback();
+        pState.playback = !pState.playback;
+    });
+    ftxui::Component controls{ftxui::Container::Vertical(
+        {ftxui::Container::Horizontal({prevBtn, pState.playbackBtn, nextBtn, muteBtn}),
+         ftxui::Container::Horizontal({seekPrevBtn, seekNextBtn, loopBtn, visBtn})}
+    )};
+
+    /// TODO: Finish canvas.
+    /// ftxui::Component canvas{detail::button("", [this] {})};
+    ftxui::Component mainContainer{
+        ftxui::Container::Vertical({ftxui::Container::Horizontal({pState.sidebarWrapper}), controls})
+    };
+    return ftxui::Renderer(mainContainer, [=, this] {
+        std::string dspName{pState.dspTracks[pState.trackSelected]};
+        ftxui::Element controls{ftxui::vbox(
+            ftxui::hbox(
+                prevBtn->Render(), ftxui::separatorEmpty(), pState.playbackBtn->Render(), ftxui::separatorEmpty(),
+                ftxui::text(std::format("{:.50}{}", dspName, dspName.length() > 50 ? "..." : "")),
+                ftxui::separatorEmpty(), nextBtn->Render(), ftxui::separatorEmpty(), muteBtn->Render(),
+                ftxui::separatorEmpty(),
+                ftxui::text(std::format("{}", static_cast<int>(player.aud.getState().volume.load() * 100)))
+            ) | ftxui::xflex |
+                ftxui::center,
+            ftxui::separatorEmpty(),
+            ftxui::hbox(
+                seekPrevBtn->Render(), ftxui::separatorEmpty(),
+                ftxui::text(detail::formatTimestamp(player.aud.getState().timestamp.load().count())),
+                ftxui::separatorEmpty(), seekNextBtn->Render(), ftxui::separatorEmpty(), loopBtn->Render(),
+                ftxui::separatorEmpty(), visBtn->Render()
+            ) | ftxui::xflex |
+                ftxui::center
+        )};
+        ftxui::Element body{
+            ftxui::hbox(ftxui::filler(), pState.sidebarWrapper->Render() | ftxui::yframe) | ftxui::xflex
+        };
+        ftxui::Element main{
+            ftxui::vbox(body | ftxui::yflex, ftxui::separatorEmpty(), controls | ftxui::xflex) | ftxui::flex
+        };
+        return main;
+    });
+};
+
+ftxui::Component Interface::root() {
+    ftxui::Component body{ftxui::Container::Tab({home(), play()}, &uiState.currentView)};
+    ftxui::Component content{ftxui::Container::Vertical({header(), body})};
+    return ftxui::Renderer(content, [content] {
+        return ftxui::window(ftxui::text(InterfaceText::windowTitle), content->Render(), ftxui::BorderStyle::EMPTY);
+    });
+}
+
+void Interface::run() {
+    populatePlaylists();
+    populateRecentlyPlayed();
+
+    // Required so that pState.sidebar is not left uninitialized.
+    newPlayState({0}, 0);
+    uiState.currentView = static_cast<int>(PlayerView::HOME);
+
+    // Render at 20 FPS.
+    ftxui::Loop loop{ftxui::Loop{&scr, root()}};
+    while (!loop.HasQuitted()) {
+        loop.RunOnce();
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        // Auto-run.
+
+        scr.PostEvent(ftxui::Event::Custom);
+    }
+}
+
+void Interface::quit() { scr.Exit(); }
+
+void Interface::populatePlaylists() {
     std::transform(
-        ui.player.data.fileEntries.begin(), ui.player.data.fileEntries.end(), std::back_inserter(sortedEntries),
-        [&idx](const auto &e) { return std::pair<Entry, EntryId>(e, idx++); }
+        player.data.playlists.begin(), player.data.playlists.end(), std::back_inserter(hState.dspPlaylists),
+        [](const auto &e) { return e.playlistName; }
     );
-    std::sort(sortedEntries.begin(), sortedEntries.end(), [](const auto &a, const auto &b) {
+}
+
+void Interface::populateRecentlyPlayed() {
+    std::vector<std::pair<Entry, EntryId>> entries{};
+    std::transform(
+        player.data.fileEntries.begin(), player.data.fileEntries.end(), std::back_inserter(entries),
+        [&](const auto &e) {
+            static EntryId uid{};
+            return std::pair<Entry, EntryId>(e, uid++);
+        }
+    );
+    /**
+        NOTE: For now, recently played means time last modified. This is because
+        file creation times are OS-specific, and will be dealt with later.
+    */
+    std::sort(entries.begin(), entries.end(), [&](const auto &a, const auto &b) {
         return a.first.timeModified > b.first.timeModified;
     });
-
-    std::vector<EntryId> &recAddedMapping{ui.player.state.selectorRecentlyAddedMapping};
-    std::transform(sortedEntries.begin(), sortedEntries.end(), std::back_inserter(recAddedMapping), [](const auto &e) {
+    std::transform(entries.begin(), entries.end(), std::back_inserter(hState.dspRecentlyAdded), [](const auto &e) {
+        return std::string{
+            reinterpret_cast<const char *>(e.first.asPath().filename().replace_extension("").u8string().data())
+        };
+    });
+    std::transform(entries.begin(), entries.end(), std::back_inserter(hState.recAddedMap), [](const auto &e) {
         return e.second;
     });
-    recAddedPlaylist = PlaylistCompact{};
-    recAddedPlaylist.playlistName = "Recently Added";
-    recAddedPlaylist.playlistEntries = recAddedMapping;
-
-    // Set recently added.
-    std::transform(
-        sortedEntries.begin(), sortedEntries.end(), std::back_inserter(recAddedEntries), [&ui](const auto &e) {
-            return std::format(
-                "{} {}", ui.elements.songIcon,
-                reinterpret_cast<const char *>(e.first.asPath().filename().replace_extension("").u8string().data())
-            );
-        }
-    );
-
-    // Set playlists.
-    std::vector<PlaylistCompact> &playlistsC{ui.player.data.playlists};
-    std::transform(playlistsC.begin(), playlistsC.end(), std::back_inserter(playlistsEntries), [&ui](const auto &e) {
-        return std::format("{} {}", ui.elements.playlistIcon, e.playlistName);
-    });
-
-    // Menus.
-    auto customTransform{[](const ftxui::EntryState &st) {
-        ftxui::Element text{ftxui::text(std::format("{} {}", st.focused ? ">" : " ", st.label))};
-        text |= ftxui::color(st.focused ? ftxui::Color::White : ftxui::Color::GrayDark);
-        return text;
-    }};
-    ftxui::MenuOption entryOptRec{ftxui::MenuOption::Vertical()};
-    ftxui::MenuOption entryOptList{ftxui::MenuOption::Horizontal()};
-    entryOptList.entries_option.transform = customTransform;
-    entryOptRec.entries_option.transform = customTransform;
-
-    // Redirects.
-    entryOptList.on_enter = [&ui] {
-        ui.player.state.view = static_cast<int>(PlayerView::PLAY);
-        ui.player.state.cPlaylist = ui.player.data.playlists[ui.player.state.homePlaylistSel];
-        ui.player.state.playPlaylistSel = 0;
-        ui.serial++;
-    };
-    entryOptRec.on_enter = [&ui, this] {
-        ui.player.state.view = static_cast<int>(PlayerView::PLAY);
-        ui.player.state.cPlaylist = recAddedPlaylist;
-        ui.player.state.playPlaylistSel = ui.player.state.homeRecentlyAddedSel;
-        ui.serial++;
-    };
-    playlistsList = ftxui::Menu(playlistsEntries, &ui.player.state.homePlaylistSel, entryOptList);
-    recAddedList = ftxui::Menu(recAddedEntries, &ui.player.state.homeRecentlyAddedSel, entryOptRec);
-    homeContainer =
-        ftxui::Container::Vertical({ftxui::Container::Horizontal({hHomeBtn, qHomeBtn}), playlistsList, recAddedList});
 }
 
-void InterfaceComponents::initPlay() {
-    UserInterface &ui{linkedInterface};
-    ftxui::ButtonOption playbackBtnOpt{ftxui::ButtonOption::Ascii()};
-    playbackBtnOpt.transform = [&](const ftxui::EntryState &state) {
-        return !ui.player.state.isPlaying ? ui.elements.play : ui.elements.pause;
-    };
-    playbackBtnOpt.on_click = [&]() { ui.player.state.isPlaying = !ui.player.state.isPlaying; };
-    playTrackBtn = ftxui::Button(playbackBtnOpt);
-    playNextBtn = ftxui::Button(
-        ui.elements.playNext,
-        [&] {
-            if (ui.player.state.playPlaylistSel < ui.player.state.cPlaylist.playlistEntries.size() - 1) {
-                ui.player.state.playPlaylistSel++;
-            }
-        },
-        ftxui::ButtonOption::Ascii()
-    );
-    playPrevBtn = ftxui::Button(
-        ui.elements.playPrev,
-        [&] {
-            if (ui.player.state.playPlaylistSel > 0) {
-                ui.player.state.playPlaylistSel--;
-            }
-        },
-        ftxui::ButtonOption::Ascii()
-    );
-
-    ftxui::ButtonOption loopBtnOpt{ftxui::ButtonOption::Ascii()};
-    loopBtnOpt.on_click = [&] {
-        ui.player.state.isLooping = !ui.player.state.isLooping;
-        ui.player.aud.toggleLooping();
-    };
-    loopBtnOpt.label = ui.elements.loop;
-    loopBtnOpt.transform = [&](const ftxui::EntryState &e) {
-        return ftxui::text(e.label) |
-               ftxui::color((ui.player.state.isLooping ? ftxui::Color::White : ftxui::Color::GrayDark));
-    };
-    loopBtn = ftxui::Button(loopBtnOpt);
-    ftxui::ButtonOption muteBtnOpt{ftxui::ButtonOption::Ascii()};
-    muteBtnOpt.on_click = [&] {
-        ui.player.state.isMuted = !ui.player.state.isMuted;
-        ui.player.aud.toggleMute();
-    };
-    muteBtnOpt.transform = [&](const ftxui::EntryState &e) {
-        if (ui.player.state.isMuted)
-            return ui.elements.mute;
-        if (ui.player.state.volume < 0.3f) {
-            return ui.elements.volOff;
-        } else if (ui.player.state.volume < 0.6f) {
-            return ui.elements.volMed;
-        } else {
-            return ui.elements.volHigh;
-        }
-    };
-    muteBtn = ftxui::Button(muteBtnOpt);
-    ftxui::ButtonOption visBtnOpt{ftxui::ButtonOption::Ascii()};
-    visBtnOpt.on_click = [&] { ui.player.state.visualization = !ui.player.state.visualization; };
-    visBtnOpt.label = ui.elements.waveform;
-    visBtnOpt.transform = [&](const ftxui::EntryState &e) {
-        return ftxui::text(e.label) |
-               ftxui::color((ui.player.state.visualization ? ftxui::Color::White : ftxui::Color::GrayDark));
-    };
-    visualBtn = ftxui::Button(visBtnOpt);
-
-    // Volume slider.
-    ftxui::SliderOption<float> sliderOpt{};
-    sliderOpt.increment = 0.01;
-    sliderOpt.max = 1.0;
-    sliderOpt.min = 0.0;
-    sliderOpt.value = ui.player.state.volume;
-    sliderOpt.on_change = [&] { ui.player.aud.volSet(ui.player.state.volume); };
-    sliderOpt.direction = ftxui::Direction::Up;
-    sliderOpt.color_inactive = ftxui::Color::White;
-    sliderOpt.color_active = ftxui::Color::White;
-    volumeSlider = ftxui::Slider(sliderOpt);
-
-    // Seek slider.
-    ftxui::SliderOption<float> seekOpt{};
-    seekOpt.increment = 0.01;
-    seekOpt.max = 1.0;
-    seekOpt.min = 0.0;
-    seekOpt.value = ui.player.state.sliderSeekPos;
-    seekOpt.on_change = [&] { ui.player.aud.seekTo(ui.player.state.sliderSeekPos * ui.player.aud.getDuration()); };
-    seekOpt.direction = ftxui::Direction::Right;
-    seekSlider = ftxui::Slider(seekOpt);
-
-    // Sidebar.
-    auto customTransform{[](const ftxui::EntryState &st) {
-        ftxui::Element text{ftxui::text(std::format("{} {}", st.focused ? ">" : " ", st.label))};
-        text |= ftxui::color(st.focused ? ftxui::Color::White : ftxui::Color::GrayDark);
-        return text;
-    }};
-    ftxui::MenuOption sidebarOpt{ftxui::MenuOption::Vertical()};
-    sidebarOpt.entries_option.transform = customTransform;
-    sidebar = ftxui::Menu(&pListsSidebarEntries, &ui.player.state.playPlaylistSel, sidebarOpt);
-
-    /// TODO: Audio view. Visualization.
-    audioView = ftxui::Container::Vertical({});
-    playContainer = ftxui::Container::Vertical(
-        {ftxui::Container::Horizontal({hPlayBtn, qPlayBtn}), ftxui::Container::Horizontal({audioView, sidebar}),
-         ftxui::Container::Horizontal(
-             {visualBtn, playPrevBtn, playTrackBtn, playNextBtn, loopBtn, muteBtn, volumeSlider}
-         ),
-         seekSlider}
-    );
-}
-
-void InterfaceComponents::init() {
-    // Header-specific, across components.
-    UserInterface &ui{linkedInterface};
-    hHomeBtn = ftxui::Button(
-        ui.elements.homeText, [&ui] { ui.player.state.view = static_cast<int>(PlayerView::HOME); },
-        ftxui::ButtonOption::Ascii()
-    );
-    qHomeBtn = ftxui::Button(ui.elements.quitText, [&ui] { ui.player.quit(); }, ftxui::ButtonOption::Ascii());
-    hPlayBtn = ftxui::Button(
-        ui.elements.homeText, [&ui] { ui.player.state.view = static_cast<int>(PlayerView::HOME); },
-        ftxui::ButtonOption::Ascii()
-    );
-    qPlayBtn = ftxui::Button(ui.elements.quitText, [&ui] { ui.player.quit(); }, ftxui::ButtonOption::Ascii());
-    initHome();
-    initPlay();
-    rootContainer = ftxui::Container::Tab({playContainer, homeContainer}, &ui.player.state.view);
-}
-
-void UserInterface::run() {
-    components.init();
-    scr.Loop(getRoot());
-}
-
-void UserInterface::quit() { scr.Exit(); }
-
-ftxui::Element UserInterface::playRoot() {
-    static std::size_t cachedSerial{};
-    if (cachedSerial != serial) {
-        std::transform(
-            player.state.cPlaylist.playlistEntries.begin(), player.state.cPlaylist.playlistEntries.end(),
-            std::back_inserter(components.pListsSidebarEntries), [&](const auto &e) {
-                return std::format(
-                    "{} {}", elements.songIcon,
-                    reinterpret_cast<const char *>(player.data.fileEntries[static_cast<std::size_t>(e)]
-                                                       .asPath()
-                                                       .filename()
-                                                       .replace_extension("")
-                                                       .u8string()
-                                                       .data())
-                );
-            }
+void Interface::newPlayState(const std::vector<EntryId> &tracks, const int initialTrack) {
+    pState.trackSelected = initialTrack;
+    pState.dspTracks.clear();
+    pState.trackMap.clear();
+    pState.trackMap = tracks;
+    for (const auto t : tracks) {
+        pState.dspTracks.push_back(
+            std::string{reinterpret_cast<const char *>(
+                player.data.fileEntries[t].asPath().filename().replace_extension("").u8string().data()
+            )}
         );
-        cachedSerial = serial;
     }
-    // Header.
-    auto header{[this] {
-        return ftxui::hbox(
-            elements.appIcon, ftxui::filler(), components.hPlayBtn->Render(), components.qPlayBtn->Render()
-        );
-    }};
-    auto controls{[this] {
-        return ftxui::vbox(
-            components.seekSlider->Render(),
-            ftxui::hbox(
-                components.visualBtn->Render(), ftxui::separatorEmpty(), components.playPrevBtn->Render(),
-                ftxui::separatorEmpty(), components.playTrackBtn->Render(), ftxui::separatorEmpty(),
-                components.playNextBtn->Render(), ftxui::separatorEmpty(), components.loopBtn->Render(),
-                ftxui::separatorEmpty(), components.muteBtn->Render(), ftxui::separatorEmpty(),
-                components.volumeSlider->Render()
-            )
-        );
-    }};
-    auto audioView{[this] {
-        int viewWidth{static_cast<int>(ftxui::Terminal::Size().dimx * 0.6)};
-        return components.audioView->Render() | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, viewWidth);
-    }};
-    auto sidebar{[this] {
-        int sidebarWidth{static_cast<int>(ftxui::Terminal::Size().dimx * 0.4)};
-        return components.sidebar->Render() | ftxui::yframe | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, sidebarWidth);
-    }};
-    // Main content.
-    auto content{[=] {
-        int bodyHeight{static_cast<int>(ftxui::Terminal::Size().dimy * 0.7)};
-        return ftxui::vbox(
-            header(), ftxui::separatorEmpty(), ftxui::hbox(audioView(), sidebar()) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, bodyHeight),
-            controls() | ftxui::center
-        );
-    }};
 
-    // Padded content.
-    auto padded{[content] {
-        return ftxui::hbox(ftxui::separatorEmpty(), content() | ftxui::flex, ftxui::separatorEmpty());
-    }};
-    // Main root.
-    auto root{[=, this] {
-        ftxui::Element window{ftxui::window(elements.windowTitle, padded(), ftxui::BorderStyle::EMPTY)};
-        return window;
-    }};
-    return root();
-}
-
-ftxui::Element UserInterface::homeRoot() {
-    // Header.
-    auto header{[this] {
-        return ftxui::hbox(
-            elements.appIcon, ftxui::filler(), components.hHomeBtn->Render(), components.qHomeBtn->Render()
-        );
-    }};
-
-    // Recently added.
-    auto recentlyAdded{[this] {
-        // Get entries.
-        int height{static_cast<int>(ftxui::Terminal::Size().dimy * 0.5)};
-        return ftxui::vbox(
-                   elements.recAddedHeader, ftxui::separatorEmpty(), components.recAddedList->Render() | ftxui::yframe
-               ) |
-               ftxui::yflex;
-    }};
-
-    // Displayed playlists.
-    auto playlists{[this] {
-        return ftxui::vbox(
-            elements.playlistHeader, ftxui::separatorEmpty(), components.playlistsList->Render() | ftxui::xframe
-        );
-    }};
-
-    // Main content.
-    auto content{[=] {
-        return ftxui::vbox(header(), ftxui::separatorEmpty(), playlists(), ftxui::separatorEmpty(), recentlyAdded());
-    }};
-
-    // Padded content.
-    auto padded{[content] {
-        return ftxui::hbox(ftxui::separatorEmpty(), content() | ftxui::flex, ftxui::separatorEmpty());
-    }};
-
-    // Main root.
-    auto root{[=, this] {
-        ftxui::Element window{ftxui::window(elements.windowTitle, padded(), ftxui::BorderStyle::EMPTY)};
-        return window;
-    }};
-    return root();
-}
-
-/// TODO: Temporary stub.
-bool UserInterface::onHomeEvent(const ftxui::Event &event) { return false; }
-bool UserInterface::onPlayEvent(const ftxui::Event &event) {
-    if (event == ftxui::Event::Character(' ')) {
-        player.state.isPlaying = !player.state.isPlaying;
-        return true;
-    }
-    if (event == ftxui::Event::Return) {
-        player.aud.playEntry(player.data.fileEntries[player.state.cPlaylist.playlistEntries[player.state.playPlaylistSel]]);
-        return true;
-    }
-    return false;
-}
-
-/// TODO: Refactor to TAB.
-ftxui::Component UserInterface::getRoot() {
-    return ftxui::Renderer(
-               components.rootContainer,
-               [this] {
-                   switch (PlayerView{player.state.view}) {
-                   case PlayerView::HOME: return homeRoot();
-                   case PlayerView::PLAY: return playRoot();
-                   case PlayerView::NONE: throw std::runtime_error("UNHANDLED EXCEPTION: No view specified.");
-                   }
-               }
-           ) |
-           ftxui::CatchEvent([&](const auto &event) {
-               switch (PlayerView{player.state.view}) {
-               case PlayerView::HOME: return onHomeEvent(event);
-               case PlayerView::PLAY: return onPlayEvent(event);
-               case PlayerView::NONE: throw std::runtime_error("UNHANDLED EXCEPTION: No view specified.");
-               }
-           });
+    // Programatically generate the component for the sidebar.
+    pState.sidebarWrapper->DetachAllChildren();
+    pState.sidebarWrapper->Add(
+        detail::menu(
+            InterfaceText::songIcon, InterfaceText::selectedMarker, pState.trackSelected, pState.dspTracks, [this] {
+                player.aud.playEntry(player.data.fileEntries[pState.trackMap[pState.trackSelected]]);
+                pState.playbackBtn->TakeFocus();
+            }
+        )
+    );
 }
 
 } // namespace tml

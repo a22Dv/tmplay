@@ -2,12 +2,12 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <chrono>
 
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -153,8 +153,8 @@ Player::Player() {
     YAML::Node yamlConfig{YAML::Load(inputStreamConfig)};
     JSON::json jsonData(JSON::json::parse(inputStreamData));
 
-    config.defaultVolume = yamlConfig["default-volume"].as<std::uint8_t>();
-    config.visualization = yamlConfig["visualization"].as<bool>();
+    config.volByDefault = yamlConfig["default-volume"].as<std::uint8_t>();
+    config.visByDefault = yamlConfig["visualization"].as<bool>();
     config.loopByDefault = yamlConfig["loop-by-default"].as<bool>();
 
     std::vector<std::string> rscanPaths{yamlConfig["scan-paths"].as<std::vector<std::string>>()};
@@ -172,12 +172,11 @@ Player::Player() {
     // Playlist default initialization.
     if (!fs::exists(paths.playlistsPath)) {
         std::ofstream out{paths.playlistsPath};
-        std::vector<std::string> entryPaths{};
+        Playlist pl{std::string{"All"}, {}};
         std::transform(
-            data.fileEntries.begin(), data.fileEntries.end(), std::back_inserter(entryPaths),
+            data.fileEntries.begin(), data.fileEntries.end(), std::back_inserter(pl.playlistEntries),
             [](const auto &e) { return e.u8filePath; }
         );
-        Playlist pl{std::string{"All"}, entryPaths};
         out << JSON::json{pl}.dump(4) << std::endl;
     }
 
@@ -186,19 +185,16 @@ Player::Player() {
     require(inPLists.is_open(), Error::READ);
     std::vector<Playlist> pLists{JSON::json::parse(inPLists).get<std::vector<Playlist>>()};
     data.playlists = detail::getCompacted(pLists, data.fileEntries);
-
-    // Set from default config.
-    state.isLooping = config.loopByDefault;
-    state.volume = config.defaultVolume;
-    state.view = static_cast<int>(PlayerView::HOME);
 }
 
 // Player entry point.
 void Player::run() {
-    aud.run(state.isLooping, state.volume);
+    aud.run();
     ui.run();
 }
 
-void Player::quit() { ui.quit(); }
+void Player::quit() { 
+    ui.quit();
+}
 
 } // namespace tml
