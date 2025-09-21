@@ -398,25 +398,31 @@ void callback(ma_device *device, void *pOut, const void *pIn, unsigned int frame
     AudioState &state{ad.aud.getState()};
     const std::size_t totalSamples{framesPerChannel * Audio::channels};
     std::int16_t *out{static_cast<std::int16_t *>(pOut)};
-    if (state.muted.load() || !state.playback.load() || ad.decoder.eof() || !ad.decoder.isDecoderValid()) {
-        std::fill(out, out + totalSamples, 0);
-        if (ad.decoder.eof() && state.looped.load()) {
-            state.conVar.notify_one();
+    {
+        /// NOTE: No contest. Only here because of possible 
+        /// collision with decoder std::move when playing a new entry.
+        std::lock_guard<std::mutex> lock{ad.mutex};
+        if (state.muted.load() || !state.playback.load() || ad.decoder.eof() || !ad.decoder.isDecoderValid()) {
+            std::fill(out, out + totalSamples, 0);
+            if (ad.decoder.eof() && state.looped.load()) {
+                state.conVar.notify_one();
+            }
+            return;
         }
-        return;
-    }
-    for (std::size_t i{}; i < totalSamples; ++i) {
-        if (state.rIdx == state.wIdx) {
-            out[i] = 0;
-            continue;
+        for (std::size_t i{}; i < totalSamples; ++i) {
+            if (state.rIdx == state.wIdx) {
+                out[i] = 0;
+                continue;
+            }
+            out[i] = state.buffer[state.rIdx] * state.volume.load();
+            state.rIdx = (state.rIdx + 1) % Audio::sampleBufferSize;
         }
-        out[i] = state.buffer[state.rIdx] * state.volume.load();
-        state.rIdx = (state.rIdx + 1) % Audio::sampleBufferSize;
+        state.timestamp.store(
+            state.timestamp.load() +
+            std::chrono::duration<float>(framesPerChannel / static_cast<float>(Audio::sampleRate))
+        );
+        state.conVar.notify_one();
     }
-    state.timestamp.store(
-        state.timestamp.load() + std::chrono::duration<float>(framesPerChannel / static_cast<float>(Audio::sampleRate))
-    );
-    state.conVar.notify_one();
 }
 
 } // namespace detail
@@ -470,12 +476,10 @@ void Audio::pthread() {
         state.volume.store(nVal);
     };
     lambdas[szT(CommandType::SEEK_TO)] = [this, &ad](const Command &command) {
-        std::lock_guard<std::mutex> lock{ad.mutex};
         state.timestamp.store(std::chrono::duration<float>(std::clamp(command.fVal, 0.0f, metadata.duration)));
         ad.decoder.decodeAt(state.timestamp);
     };
     lambdas[szT(CommandType::SEEK_BACKWARD)] = [this, &ad](const Command &command) {
-        std::lock_guard<std::mutex> lock{ad.mutex};
         state.timestamp.store(
             std::chrono::duration<float>(
                 std::clamp(state.timestamp.load().count() - command.fVal, 0.0f, metadata.duration)
@@ -484,7 +488,6 @@ void Audio::pthread() {
         ad.decoder.decodeAt(state.timestamp);
     };
     lambdas[szT(CommandType::SEEK_FORWARD)] = [this, &ad](const Command &command) {
-        std::lock_guard<std::mutex> lock{ad.mutex};
         state.timestamp.store(
             std::chrono::duration<float>(
                 std::clamp(state.timestamp.load().count() + command.fVal, 0.0f, metadata.duration)
