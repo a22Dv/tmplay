@@ -2,11 +2,10 @@
     "version": 3,
     "configurePresets": [
         {
-            "name": "wclang-debug",
-            "displayName": "Windows clang-cl (Debug)",
-            "description": "Builds with clang-cl on Windows in Debug mode.",
+            "name": "wclang-config-debug",
+            "displayName": "Config (WClang) Debug",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build/debug/",
+            "binaryDir": "${sourceDir}/build/debug",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang-cl.exe",
                 "CMAKE_CXX_COMPILER": "clang-cl.exe",
@@ -14,15 +13,14 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "CMAKE_C_FLAGS": "--target=x86_64-pc-windows-msvc",
                 "CMAKE_CXX_FLAGS": "--target=x86_64-pc-windows-msvc",
-                "CMAKE_TOOLCHAIN_FILE": "C:/custom_programs/vcpkg/scripts/buildsystems/vcpkg.cmake"
+                "CMAKE_TOOLCHAIN_FILE": "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake"
             }
         },
         {
-            "name": "wclang-release",
-            "displayName": "Windows clang-cl (Release)",
-            "description": "Builds with clang-cl on Windows in Release mode (optimized).",
+            "name": "wclang-config-release",
+            "displayName": "Config (WClang) Release",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build/release/",
+            "binaryDir": "${sourceDir}/build/release",
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "clang-cl.exe",
                 "CMAKE_CXX_COMPILER": "clang-cl.exe",
@@ -30,20 +28,21 @@
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
                 "CMAKE_C_FLAGS": "--target=x86_64-pc-windows-msvc",
                 "CMAKE_CXX_FLAGS": "--target=x86_64-pc-windows-msvc",
-                "CMAKE_TOOLCHAIN_FILE": "C:/custom_programs/vcpkg/scripts/buildsystems/vcpkg.cmake"
+                "CMAKE_TOOLCHAIN_FILE": "C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake"
             }
         }
+
     ],
     "buildPresets": [
         {
-            "name": "debug-build",
-            "configurePreset": "wclang-debug",
-            "displayName": "Build (Debug)"
+            "name": "wclang-build-debug",
+            "configurePreset": "wclang-config-debug",
+            "displayName": "Build (WClang) Debug"
         },
         {
-            "name": "release-build",
-            "configurePreset": "wclang-release",
-            "displayName": "Build (Release)"
+            "name": "wclang-build-release",
+            "configurePreset": "wclang-config-release",
+            "displayName": "Build (WClang) Release"
         }
     ]
 }

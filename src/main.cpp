@@ -1,28 +1,13 @@
-#ifndef NOCATCH
 #include <exception>
-#include <format>
 #include <iostream>
-#endif
 
-#include "player.hpp"
-
-#ifndef NOCATCH
 #include "utils.hpp"
-#endif
-
 
 int main() {
-    SetConsoleOutputCP(CP_UTF8);
-#ifndef NOCATCH
+    std::ios_base::sync_with_stdio(false);
     try {
-#endif
-        tml::Player p{};
-        p.run();
-#ifndef NOCATCH
+        std::cout << "Hello World!\n";
     } catch (const std::exception &e) {
-        tml::clearConsole();
-        std::cerr << std::format("UNHANDLED EXCEPTION: {}", e.what()) << std::endl;
+        trm::showError(e.what());
     }
-#endif
-    return 0;
 }
