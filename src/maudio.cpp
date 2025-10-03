@@ -17,7 +17,7 @@ AudioDevice::~AudioDevice() {
 }
 
 void MaDevice::callback(ma_device *device, void *out, const void *in, unsigned int frames) {
-        
+    return;
 }
 
 }
