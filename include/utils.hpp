@@ -3,28 +3,29 @@
 #include <iostream>
 #include <stdexcept>
 
-#define ERR_LIST E(GENERIC_EXCEPTION, "A generic exception has been thrown.")
+#define ERR_LIST                                                                                   \
+    E(GENERIC, "A generic exception has been thrown.")                                             \
+    E(MA_INIT, "Miniaudio initialization encountered an error.")
 namespace trm {
 
 inline void clearConsole() { std::cout << "\033[2J\033[H" << std::flush; }
 
 inline void showError(const std::string &errMsg) {
     clearConsole();
-    std::cout << "\e[0;31m" << "THROWN EXCEPTION:\n"
-              << errMsg << "\e[0m" << std::endl;
+    std::cout << "\e[0;31m" << "THROWN EXCEPTION:\n" << errMsg << "\e[0m" << std::endl;
 }
 
 enum class Error : std::uint8_t {
-    #define E(err, str) err,
+#define E(err, str) err,
     ERR_LIST
-    #undef E
-    COUNT
+#undef E
+        COUNT
 };
 
-constexpr const char* errMsg[static_cast<std::size_t>(Error::COUNT)] = {
-    #define E(err, str) str,
+constexpr const char *errMsg[static_cast<std::size_t>(Error::COUNT)] = {
+#define E(err, str) str,
     ERR_LIST
-    #undef E
+#undef E
 };
 
 inline void require(const bool cond, const Error err) {

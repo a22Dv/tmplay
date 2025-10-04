@@ -1,7 +1,10 @@
-#include "maudio.hpp"
+#define MINIAUDIO_IMPLEMENTATION
 
 #include <algorithm>
 #include <cstdint>
+
+#include "maudio.hpp"
+#include "utils.hpp"
 
 namespace trm {
 
@@ -12,7 +15,10 @@ AudioDevice::AudioDevice() {
     device.devConfig.deviceType = MaDeviceSpecifiers::deviceType;
     device.devConfig.dataCallback = device.callback;
     device.devConfig.pUserData = static_cast<void *>(this);
-    ma_device_init(nullptr, &device.devConfig, &device.dev);
+
+    require(ma_device_init(nullptr, &device.devConfig, &device.dev) == MA_SUCCESS, Error::MA_INIT);
+    require(ma_device_start(&device.dev) == MA_SUCCESS, Error::MA_INIT);
+
     internalThread = std::thread([this] { this->pThread(); });
 }
 
@@ -55,7 +61,11 @@ void AudioDevice::decVol(const Command &command) {
     state.volume.store(std::max(0.0f, state.volume.load() - command.fVal.value_or(0.0f)));
 }
 
-void AudioDevice::start([[maybe_unused]] const Command &command) { return; }
+void AudioDevice::start([[maybe_unused]] const Command &command) {
+    state.timestamp.store(0.0f);
+    state.ready.store(true);
+    /// TODO: Act on pVal (path).
+}
 
 void AudioDevice::end([[maybe_unused]] const Command &command) {
     state.playback.store(false);
@@ -69,7 +79,7 @@ void AudioDevice::pThread() {
             std::unique_lock<std::mutex> lock{state.commandMutex};
             state.condition.wait(lock, [this] {
                 return this->state.terminate.load() || !this->state.commandQueue.empty() ||
-                       this->state.sampleQueue.size() < MaDeviceSpecifiers::queueLimit;
+                       this->state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit;
             });
             while (!state.commandQueue.empty()) {
                 Command &com{state.commandQueue.front()};
@@ -90,13 +100,71 @@ void AudioDevice::pThread() {
                 state.commandQueue.pop();
             }
         }
-        while (state.sampleQueue.size() < MaDeviceSpecifiers::queueLimit) {
-            /// TODO: Decoder sample retrieval.
+        {
+            std::lock_guard<std::mutex> lock{state.queueMutex};
+            while (state.sampleQueue.size() < MaDeviceSpecifiers::queueLimit) {
+                break;
+            }
         }
         if (state.terminate) {
             break;
         }
     }
+}
+
+void AudioDevice::sendCommand(const Command &command) {
+    constexpr std::size_t commandLimit{5};
+    std::lock_guard<std::mutex> lock{state.commandMutex};
+    if (state.commandQueue.size() >= commandLimit) {
+        return;
+    }
+    state.commandQueue.push(command);
+    state.condition.notify_one();
+}
+
+void AudioDevice::play() {
+    Command com{.commandType = CommandType::PLAY};
+    sendCommand(com);
+}
+void AudioDevice::pause() {
+    Command com{.commandType = CommandType::PAUSE};
+    sendCommand(com);
+}
+void AudioDevice::togglePlayback() {
+    Command com{.commandType = CommandType::TOGGLE_PLAYBACK};
+    sendCommand(com);
+}
+void AudioDevice::toggleMute() {
+    Command com{.commandType = CommandType::TOGGLE_MUTE};
+    sendCommand(com);
+}
+void AudioDevice::toggleLooping() {
+    Command com{.commandType = CommandType::TOGGLE_LOOPING};
+    sendCommand(com);
+}
+void AudioDevice::setVol(const float vol) {
+    Command com{.commandType = CommandType::SET_VOL, .fVal = vol};
+    sendCommand(com);
+}
+void AudioDevice::incVol(const float vol) {
+    Command com{.commandType = CommandType::INC_VOL, .fVal = vol};
+    sendCommand(com);
+}
+void AudioDevice::decVol(const float vol) {
+    Command com{.commandType = CommandType::DEC_VOL, .fVal = vol};
+    sendCommand(com);
+}
+void AudioDevice::seekTo(const float timestamp) {
+    Command com{.commandType = CommandType::SEEK_TO, .fVal = timestamp};
+    sendCommand(com);
+}
+void AudioDevice::start(const std::filesystem::path path) {
+    Command com{.commandType = CommandType::START, .pVal = path};
+    sendCommand(com);
+}
+void AudioDevice::end() {
+    Command com{.commandType = CommandType::END};
+    sendCommand(com);
 }
 
 void MaDevice::callback(
@@ -107,7 +175,7 @@ void MaDevice::callback(
     const std::uint32_t tFrameCount{frames * MaDeviceSpecifiers::channels};
     std::uint32_t framesServed{};
     std::int16_t *sampleOut{static_cast<std::int16_t *>(out)};
-    if (state.muted || !state.playback || state.sampleQueue.empty() || !state.ready) {
+    if (state.muted || !state.playback || !state.cQueueSamples.load() || !state.ready) {
         std::fill(sampleOut, sampleOut + tFrameCount, 0);
         return;
     }
@@ -115,13 +183,26 @@ void MaDevice::callback(
         std::lock_guard<std::mutex> lock{aDevice.state.queueMutex};
         while (!state.sampleQueue.empty() && framesServed != tFrameCount) {
             *(sampleOut + framesServed) = state.sampleQueue.front();
-            state.sampleQueue.pop();
+            state.qPopSync();
             ++framesServed;
         }
     }
     if (framesServed != tFrameCount) [[unlikely]] {
         std::fill(sampleOut + framesServed, sampleOut + tFrameCount, 0);
     }
+    state.condition.notify_one();
+}
+
+// Not thread-safe. Modifies the state queue. Must be used within a mutex.
+void DeviceState::qPushSync(std::int16_t sample) {
+    sampleQueue.push(sample);
+    ++cQueueSamples;
+}
+
+// Not thread-safe. Modifies the state queue. Must be used within a mutex.
+void DeviceState::qPopSync() {
+    sampleQueue.pop();
+    --cQueueSamples;
 }
 
 } // namespace trm

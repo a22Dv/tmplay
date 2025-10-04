@@ -68,11 +68,14 @@ struct DeviceState {
     std::atomic<bool> looping{};
     std::atomic<float> volume{};
     std::atomic<float> timestamp{};
+    std::atomic<std::size_t> cQueueSamples{};
     std::mutex queueMutex{};
     std::mutex commandMutex{};
     std::queue<Command> commandQueue{};
     std::queue<std::int16_t> sampleQueue{};
     std::condition_variable condition{};
+    void qPushSync(std::int16_t sample);
+    void qPopSync();
 };
 
 
@@ -81,6 +84,7 @@ class AudioDevice {
     MaDevice device{};
     DeviceState state{};
     std::thread internalThread{};
+    void sendCommand(const Command& command);
     void pThread();
     void play(const Command& command);
     void pause(const Command& command);
@@ -99,6 +103,17 @@ class AudioDevice {
     std::mutex &getQueueMutex() { return state.queueMutex; }
     std::queue<std::int16_t> &getQueue() { return state.sampleQueue; }
     AudioDevice();
+    void play();
+    void pause();
+    void togglePlayback();
+    void toggleMute();
+    void toggleLooping();
+    void setVol(const float vol);
+    void incVol(const float vol);
+    void decVol(const float vol);
+    void seekTo(const float timestamp);
+    void start(const std::filesystem::path path);
+    void end();
     ~AudioDevice();
 };
 
