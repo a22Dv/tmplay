@@ -27,6 +27,7 @@ FetchContent_MakeAvailable(ftxui)
 set(SOURCES 
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/maudio.cpp"
+    "${CMAKE_SOURCE_DIR}/src/decoder.cpp"
 )
 set(INCLUDES "${CMAKE_SOURCE_DIR}/include" ${FFMPEG_INCLUDE_DIRS})
 

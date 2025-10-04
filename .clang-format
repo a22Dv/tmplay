@@ -2,6 +2,6 @@ BasedOnStyle: LLVM
 IndentWidth: 4
 DerivePointerAlignment: false
 PointerAlignment: Right
-ColumnLimit: 100
+ColumnLimit: 120
 AlignAfterOpenBracket: BlockIndent
 AllowShortCaseLabelsOnASingleLine: true

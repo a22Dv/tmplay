@@ -10,12 +10,11 @@
 #include <optional>
 #include <queue>
 
-
 #include "miniaudio.h"
 
 /**
-    NOTE: 
-    When initialized, 
+    NOTE:
+    When initialized,
     AudioDevice will not be in a ready state.
     Volume will be set to 0.0f,
     Playback will be set to false.
@@ -29,9 +28,9 @@ struct MaDeviceSpecifiers {
     static constexpr ma_uint32 sampleRate{48000};
     static constexpr ma_device_type deviceType{ma_device_type_playback};
     static constexpr std::chrono::milliseconds queueLimitMs{30};
-    static constexpr std::size_t queueLimit{static_cast<std::size_t>(
-        sampleRate * channels * (static_cast<float>(queueLimitMs.count()) / 1000)
-    )};
+    static constexpr std::size_t queueLimit{
+        static_cast<std::size_t>(sampleRate * channels * (static_cast<float>(queueLimitMs.count()) / 1000))
+    };
 };
 
 // Miniaudio device.
@@ -92,19 +91,19 @@ class AudioDevice {
     MaDevice device{};
     DeviceState state{};
     std::thread internalThread{};
-    void sendCommand(const Command& command);
+    void sendCommand(const Command &command);
     void pThread();
-    void play(const Command& command);
-    void pause(const Command& command);
-    void togglePlayback(const Command& command);
-    void toggleMute(const Command& command);
-    void toggleLooping(const Command& command);
-    void setVol(const Command& command);
-    void incVol(const Command& command);
-    void decVol(const Command& command);
-    void seekTo(const Command& command);
-    void start(const Command& command);
-    void end(const Command& command);
+    void play(const Command &command);
+    void pause(const Command &command);
+    void togglePlayback(const Command &command);
+    void toggleMute(const Command &command);
+    void toggleLooping(const Command &command);
+    void setVol(const Command &command);
+    void incVol(const Command &command);
+    void decVol(const Command &command);
+    void seekTo(const Command &command);
+    void start(const Command &command);
+    void end(const Command &command);
     friend struct MaDevice;
 
   public:
