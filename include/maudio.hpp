@@ -20,6 +20,7 @@
     Volume will be set to 0.0f,
     Playback will be set to false.
 */
+
 namespace trm {
 
 // Device playback specifiers.
@@ -30,7 +31,7 @@ struct MaDeviceSpecifiers {
     static constexpr ma_device_type deviceType{ma_device_type_playback};
     static constexpr std::chrono::milliseconds queueLimitMs{30};
     static constexpr std::size_t queueLimit{
-        static_cast<std::size_t>(sampleRate * channels * (static_cast<float>(queueLimitMs.count()) / 1000))
+        static_cast<std::size_t>(sampleRate * channels * static_cast<float>(queueLimitMs.count()) / 1000)
     };
 };
 
@@ -83,7 +84,8 @@ struct DeviceState {
     std::queue<std::int16_t> stagingQueue{};
     std::condition_variable condition{};
     Decoder decoder{};
-    void flushSampleQueues();
+    void flushSampleQueue();
+    void flushStagingQueue();
     void qPushSync(std::int16_t sample);
     void qPopSync();
 };

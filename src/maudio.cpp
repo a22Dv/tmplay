@@ -32,48 +32,57 @@ AudioDevice::~AudioDevice() {
 }
 
 void AudioDevice::play([[maybe_unused]] const Command &command) { state.playback.store(true); }
-
 void AudioDevice::pause([[maybe_unused]] const Command &command) { state.playback.store(false); }
-
 void AudioDevice::togglePlayback([[maybe_unused]] const Command &command) {
     state.playback.store(!state.playback.load());
 }
-
 void AudioDevice::toggleMute([[maybe_unused]] const Command &command) { state.muted.store(!state.muted.load()); }
-
 void AudioDevice::toggleLooping([[maybe_unused]] const Command &command) { state.looping.store(!state.looping.load()); }
-
-void AudioDevice::seekTo(const Command &command) { state.timestamp.store(command.fVal.value_or(0.0f)); }
-
+void AudioDevice::seekTo(const Command &command) {
+    {
+        std::lock_guard<std::mutex> lock{state.queueMutex};
+        state.flushSampleQueue();
+    }
+    state.flushStagingQueue();
+    state.decoder.seekTo(command.fVal.value_or(0.0f));
+}
 void AudioDevice::setVol(const Command &command) { state.volume.store(command.fVal.value_or(0.0f)); }
-
 void AudioDevice::incVol(const Command &command) {
     state.volume.store(std::min(1.0f, state.volume.load() + command.fVal.value_or(0.0f)));
 }
-
 void AudioDevice::decVol(const Command &command) {
     state.volume.store(std::max(0.0f, state.volume.load() - command.fVal.value_or(0.0f)));
 }
-
 void AudioDevice::start([[maybe_unused]] const Command &command) {
+    {
+        std::lock_guard<std::mutex> lock{state.queueMutex};
+        state.flushSampleQueue();
+    }
+    state.flushStagingQueue();
     state.timestamp.store(0.0f);
     state.ready.store(true);
-    /// TODO: Act on pVal (path).
+    require(command.pVal.has_value(), Error::INVALID_COMMAND);
+    state.decoder = Decoder{command.pVal.value()};
 }
-
 void AudioDevice::end([[maybe_unused]] const Command &command) {
+    {
+        std::lock_guard<std::mutex> lock{state.queueMutex};
+        state.flushSampleQueue();
+    }
+    state.flushStagingQueue();
     state.playback.store(false);
     state.ready.store(false);
     state.timestamp.store(0.0f);
 }
 
 void AudioDevice::pThread() {
-    while (true) {
+    while (!state.terminate.load()) {
         {
             std::unique_lock<std::mutex> lock{state.commandMutex};
             state.condition.wait(lock, [this] {
                 return this->state.terminate.load() || !this->state.commandQueue.empty() ||
-                       this->state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit;
+                       this->state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit ||
+                       (this->state.decoder.eof() && this->state.looping);
             });
             while (!state.commandQueue.empty()) {
                 Command &com{state.commandQueue.front()};
@@ -94,8 +103,9 @@ void AudioDevice::pThread() {
                 state.commandQueue.pop();
             }
         }
-        while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit && !state.decoder.eof()) {
-            state.stagingQueue.push(state.decoder.getSample());
+        while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit && !state.decoder.eof() &&
+               state.decoder.isReady()) {
+            state.stagingQueue.push(state.decoder.getSample().value_or(0.0f));
         }
         {
             std::lock_guard<std::mutex> lock{state.queueMutex};
@@ -104,20 +114,21 @@ void AudioDevice::pThread() {
                 state.stagingQueue.pop();
             }
         }
-        if (state.terminate) {
-            break;
-        }
     }
 }
 
-void DeviceState::flushSampleQueues() {
-    while (!sampleQueue.empty()) {
-        sampleQueue.pop();
-    }
+void DeviceState::flushStagingQueue() {
     while (!stagingQueue.empty()) {
         stagingQueue.pop();
     }
 }
+
+void DeviceState::flushSampleQueue() {
+    while (!sampleQueue.empty()) {
+        qPopSync();
+    }
+}
+
 void AudioDevice::sendCommand(const Command &command) {
     constexpr std::size_t commandLimit{5};
     std::lock_guard<std::mutex> lock{state.commandMutex};

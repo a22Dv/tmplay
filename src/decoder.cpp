@@ -266,8 +266,7 @@ void Decoder::seekTo(const float timestamp) {
     state.cSample = 0;
     state.eof = state.fGraphEof = state.fEof = state.pEof = false;
     data.timestamp = nTimestamp;
-    while (acquireFFrame() == DecodeStatus::AV_SUCCESS && state.filterFrame->pts < nTSConverted)
-        ;
+    while (acquireFFrame() == DecodeStatus::AV_SUCCESS && state.filterFrame->pts < nTSConverted);
 }
 
 } // namespace trm

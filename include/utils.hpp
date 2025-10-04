@@ -11,7 +11,9 @@
     E(ALLOC, "Memory allocation failure.")                                                                             \
     E(FFMPEG_OPEN, "File cannot be opened.")                                                                           \
     E(FFMPEG_FILTER, "Filter graph failure.")                                                                          \
-    E(FFMPEG_DECODE, "File decode failure.")
+    E(FFMPEG_DECODE, "File decode failure.")                                                                           \
+    E(INVALID_COMMAND, "Invalid command.")
+
 namespace trm {
 
 inline void clearConsole() { std::cout << "\033[2J\033[H" << std::flush; }
@@ -23,9 +25,8 @@ inline void showError(const std::string &errMsg) {
 
 enum class Error : std::uint8_t {
 #define E(err, str) err,
-    ERR_LIST
+    ERR_LIST COUNT,
 #undef E
-        COUNT
 };
 
 constexpr const char *errMsg[static_cast<std::size_t>(Error::COUNT)] = {
@@ -44,6 +45,5 @@ inline void require(const bool cond, const Error err) {
         throw std::runtime_error(errMsg[static_cast<std::size_t>(err)]);
     }
 }
-
 
 } // namespace trm
