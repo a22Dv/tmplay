@@ -38,10 +38,12 @@ inline std::string asU8(const std::filesystem::path &path) {
     std::u8string u8{path.u8string()};
     return std::string{reinterpret_cast<const char *>(u8.data()), u8.length()};
 }
+
 inline void require(const bool cond, const Error err) {
     if (!cond) [[unlikely]] {
         throw std::runtime_error(errMsg[static_cast<std::size_t>(err)]);
     }
 }
+
 
 } // namespace trm

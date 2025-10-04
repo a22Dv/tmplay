@@ -61,11 +61,11 @@ class Decoder {
     void setFilterGraph();
 
   public:
-    bool isReady();
+    bool isReady() { return state.validState; };
     bool eof() { return state.eof; }
     float getFileDuration() { return data.duration; }
     float getCurrentTimestamp() { return data.timestamp; }
-    float seekTo(const float timestamp);
+    void seekTo(const float timestamp);
     std::optional<std::int16_t>  getSample();
     Decoder();
     Decoder(const std::filesystem::path path);

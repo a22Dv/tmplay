@@ -1,13 +1,15 @@
-#include "maudio.hpp"
+#include <cstdint>
 #include <filesystem>
-#include <libavfilter/buffersink.h>
-#include <libavfilter/buffersrc.h>
+#include <format>
 #include <optional>
+#include <string>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavcodec/packet.h>
 #include <libavfilter/avfilter.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/channel_layout.h>
@@ -16,9 +18,22 @@ extern "C" {
 }
 
 #include "decoder.hpp"
+#include "maudio.hpp"
 #include "utils.hpp"
 
 namespace trm {
+
+namespace {
+
+std::int64_t toStreamTicks(const float from, const AVRational streamUnits) {
+    return av_rescale_q(static_cast<std::int64_t>(from * AV_TIME_BASE), AV_TIME_BASE_Q, streamUnits);
+}
+
+float fromStreamTicks(const std::int64_t from, const AVRational streamUnits) {
+    return static_cast<float>(av_rescale_q(from, streamUnits, AV_TIME_BASE_Q)) / AV_TIME_BASE;
+}
+
+} // namespace
 
 Decoder::Decoder(const std::filesystem::path path) {
     AVFormatContext *fctx{};
@@ -28,6 +43,9 @@ Decoder::Decoder(const std::filesystem::path path) {
     state.aStreamIdx = av_find_best_stream(fctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     require(state.aStreamIdx >= 0, Error::FFMPEG_OPEN);
     state.stream = fctx->streams[state.aStreamIdx];
+    data.duration = static_cast<float>(fctx->duration) / AV_TIME_BASE;
+    data.path = path;
+    data.timestamp = 0.0f;
 
     const AVCodec *codec{avcodec_find_decoder(state.stream->codecpar->codec_id)};
     require(codec, Error::FFMPEG_OPEN);
@@ -107,8 +125,11 @@ void Decoder::setFilterGraph() {
 std::optional<std::int16_t> Decoder::getSample() { return acquireSample(); }
 
 std::optional<std::int16_t> Decoder::acquireSample() {
+    constexpr float denum{ MaDeviceSpecifiers::channels * MaDeviceSpecifiers::sampleRate};
     while (!state.eof) {
         if (state.cSample < static_cast<int>(state.filterFrame->nb_samples * MaDeviceSpecifiers::channels)) [[likely]] {
+            data.timestamp = fromStreamTicks(state.filterFrame->pts, state.filterFrame->time_base);
+            data.timestamp += static_cast<float>(state.cSample) / denum;
             return reinterpret_cast<std::int16_t *>(state.filterFrame->data[0])[state.cSample++];
         }
         const DecodeStatus fAcq{acquireFFrame()};
@@ -231,6 +252,22 @@ DecodeStatus Decoder::acquirePacket() noexcept {
         }
     }
     return DecodeStatus::AV_EOF;
+}
+
+void Decoder::seekTo(const float timestamp) {
+    const float nTimestamp{std::max(0.0f, std::min(timestamp, data.duration))};
+    const std::int64_t nTSConverted{toStreamTicks(nTimestamp, state.stream->time_base)};
+    require(
+        av_seek_frame(state.formatCtx.get(), state.aStreamIdx, nTSConverted, AVSEEK_FLAG_BACKWARD) >= 0,
+        Error::FFMPEG_DECODE
+    );
+    avcodec_flush_buffers(state.codecCtx.get());
+    setFilterGraph();
+    state.cSample = 0;
+    state.eof = state.fGraphEof = state.fEof = state.pEof = false;
+    data.timestamp = nTimestamp;
+    while (acquireFFrame() == DecodeStatus::AV_SUCCESS && state.filterFrame->pts < nTSConverted)
+        ;
 }
 
 } // namespace trm
