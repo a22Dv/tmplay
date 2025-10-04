@@ -24,7 +24,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ftxui)
 
-set(SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
+set(SOURCES 
+    "${CMAKE_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/maudio.cpp"
+)
 set(INCLUDES "${CMAKE_SOURCE_DIR}/include" ${FFMPEG_INCLUDE_DIRS})
 
 set(LINK_LIBRARIES 
@@ -35,7 +38,7 @@ set(LINK_LIBRARIES
     ${FFMPEG_LIBRARIES}
 )
 # set(COMPILE_OPTIONS <OPTS>)
-# set(COMPILE_DEFINITIONS <DEFS>)
+set(COMPILE_DEFINITIONS NOMINMAX)
 
 set(ADD_MSVC_COMPILE_OPTS /W4 /WX /EHsc)
 set(ADD_GCC_CLANG_COMPILE_OPTS -Wall -Wextra -Wpedantic -Werror)
@@ -47,7 +50,7 @@ target_include_directories(${PNAME} PRIVATE ${INCLUDES})
 
 target_link_libraries(${PNAME} PRIVATE ${LINK_LIBRARIES})
 # target_compile_options(${PNAME} PRIVATE ${COMPILE_OPTIONS})
-# target_compile_definitions(${PNAME} PRIVATE ${COMPILE_DEFINITIONS})
+target_compile_definitions(${PNAME} PRIVATE ${COMPILE_DEFINITIONS})
 
 if (MSVC) 
     target_compile_options(${PNAME} PRIVATE ${ADD_MSVC_COMPILE_OPTS})
