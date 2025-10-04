@@ -13,6 +13,13 @@
 
 #include "miniaudio.h"
 
+/**
+    NOTE: 
+    When initialized, 
+    AudioDevice will not be in a ready state.
+    Volume will be set to 0.0f,
+    Playback will be set to false.
+*/
 namespace trm {
 
 // Device playback specifiers.
@@ -21,7 +28,7 @@ struct MaDeviceSpecifiers {
     static constexpr ma_uint32 channels{2};
     static constexpr ma_uint32 sampleRate{48000};
     static constexpr ma_device_type deviceType{ma_device_type_playback};
-    static constexpr std::chrono::milliseconds queueLimitMs{100};
+    static constexpr std::chrono::milliseconds queueLimitMs{30};
     static constexpr std::size_t queueLimit{static_cast<std::size_t>(
         sampleRate * channels * (static_cast<float>(queueLimitMs.count()) / 1000)
     )};
@@ -73,11 +80,12 @@ struct DeviceState {
     std::mutex commandMutex{};
     std::queue<Command> commandQueue{};
     std::queue<std::int16_t> sampleQueue{};
+    std::queue<std::int16_t> stagingQueue{};
     std::condition_variable condition{};
+    void flushSampleQueues();
     void qPushSync(std::int16_t sample);
     void qPopSync();
 };
-
 
 // Playback device.
 class AudioDevice {

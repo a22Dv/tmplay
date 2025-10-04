@@ -23,6 +23,8 @@ AudioDevice::AudioDevice() {
 }
 
 AudioDevice::~AudioDevice() {
+    state.terminate.store(true);
+    state.condition.notify_one();
     if (internalThread.joinable()) {
         internalThread.join();
     }
@@ -100,10 +102,16 @@ void AudioDevice::pThread() {
                 state.commandQueue.pop();
             }
         }
+        while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit) {
+            /// TODO: Decoder fill.
+            break;
+        }
         {
             std::lock_guard<std::mutex> lock{state.queueMutex};
-            while (state.sampleQueue.size() < MaDeviceSpecifiers::queueLimit) {
-                break;
+            while (state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit &&
+                   !state.stagingQueue.empty()) {
+                state.qPushSync(state.stagingQueue.front());
+                state.stagingQueue.pop();
             }
         }
         if (state.terminate) {
@@ -112,6 +120,14 @@ void AudioDevice::pThread() {
     }
 }
 
+void DeviceState::flushSampleQueues() {
+    while (!sampleQueue.empty()) {
+        sampleQueue.pop();
+    }
+    while (!stagingQueue.empty()) {
+        stagingQueue.pop();
+    }
+}
 void AudioDevice::sendCommand(const Command &command) {
     constexpr std::size_t commandLimit{5};
     std::lock_guard<std::mutex> lock{state.commandMutex};
