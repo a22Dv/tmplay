@@ -1,4 +1,5 @@
 #pragma once
+
 #include <iostream>
 #include <stdexcept>
 
@@ -13,7 +14,7 @@ inline void showError(const std::string &errMsg) {
               << errMsg << "\e[0m" << std::endl;
 }
 
-enum class Error {
+enum class Error : std::uint8_t {
     #define E(err, str) err,
     ERR_LIST
     #undef E
