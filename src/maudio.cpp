@@ -39,21 +39,13 @@ void AudioDevice::togglePlayback([[maybe_unused]] const Command &command) {
     state.playback.store(!state.playback.load());
 }
 
-void AudioDevice::toggleMute([[maybe_unused]] const Command &command) {
-    state.muted.store(!state.muted.load());
-}
+void AudioDevice::toggleMute([[maybe_unused]] const Command &command) { state.muted.store(!state.muted.load()); }
 
-void AudioDevice::toggleLooping([[maybe_unused]] const Command &command) {
-    state.looping.store(!state.looping.load());
-}
+void AudioDevice::toggleLooping([[maybe_unused]] const Command &command) { state.looping.store(!state.looping.load()); }
 
-void AudioDevice::seekTo(const Command &command) {
-    state.timestamp.store(command.fVal.value_or(0.0f));
-}
+void AudioDevice::seekTo(const Command &command) { state.timestamp.store(command.fVal.value_or(0.0f)); }
 
-void AudioDevice::setVol(const Command &command) {
-    state.volume.store(command.fVal.value_or(0.0f));
-}
+void AudioDevice::setVol(const Command &command) { state.volume.store(command.fVal.value_or(0.0f)); }
 
 void AudioDevice::incVol(const Command &command) {
     state.volume.store(std::min(1.0f, state.volume.load() + command.fVal.value_or(0.0f)));
@@ -108,8 +100,7 @@ void AudioDevice::pThread() {
         }
         {
             std::lock_guard<std::mutex> lock{state.queueMutex};
-            while (state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit &&
-                   !state.stagingQueue.empty()) {
+            while (state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit && !state.stagingQueue.empty()) {
                 state.qPushSync(state.stagingQueue.front());
                 state.stagingQueue.pop();
             }
@@ -183,9 +174,7 @@ void AudioDevice::end() {
     sendCommand(com);
 }
 
-void MaDevice::callback(
-    ma_device *device, void *out, [[maybe_unused]] const void *in, unsigned int frames
-) {
+void MaDevice::callback(ma_device *device, void *out, [[maybe_unused]] const void *in, unsigned int frames) {
     AudioDevice &aDevice{*static_cast<AudioDevice *>(device->pUserData)};
     DeviceState &state{aDevice.state};
     const std::uint32_t tFrameCount{frames * MaDeviceSpecifiers::channels};

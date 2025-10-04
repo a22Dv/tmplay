@@ -5,7 +5,8 @@
 
 #define ERR_LIST                                                                                   \
     E(GENERIC, "A generic exception has been thrown.")                                             \
-    E(MA_INIT, "Miniaudio initialization encountered an error.")
+    E(MA_INIT, "Miniaudio initialization encountered an error.")                                   \
+    E(DOES_NOT_EXIST, "File does not exist.")
 namespace trm {
 
 inline void clearConsole() { std::cout << "\033[2J\033[H" << std::flush; }
