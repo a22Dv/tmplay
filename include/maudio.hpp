@@ -11,6 +11,7 @@
 #include <queue>
 
 #include "miniaudio.h"
+#include "decoder.hpp"
 
 /**
     NOTE:
@@ -81,6 +82,7 @@ struct DeviceState {
     std::queue<std::int16_t> sampleQueue{};
     std::queue<std::int16_t> stagingQueue{};
     std::condition_variable condition{};
+    Decoder decoder{};
     void flushSampleQueues();
     void qPushSync(std::int16_t sample);
     void qPopSync();

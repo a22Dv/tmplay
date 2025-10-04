@@ -94,9 +94,8 @@ void AudioDevice::pThread() {
                 state.commandQueue.pop();
             }
         }
-        while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit) {
-            /// TODO: Decoder fill.
-            break;
+        while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit && !state.decoder.eof()) {
+            state.stagingQueue.push(state.decoder.getSample());
         }
         {
             std::lock_guard<std::mutex> lock{state.queueMutex};
