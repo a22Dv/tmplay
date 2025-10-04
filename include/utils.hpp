@@ -27,7 +27,7 @@ constexpr const char* errMsg[static_cast<std::size_t>(Error::COUNT)] = {
 };
 
 inline void require(const bool cond, const Error err) {
-    if (!cond) {
+    if (!cond) [[unlikely]] {
         throw std::runtime_error(errMsg[static_cast<std::size_t>(err)]);
     }
 }
