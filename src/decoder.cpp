@@ -1,4 +1,8 @@
+#include "maudio.hpp"
 #include <filesystem>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
+#include <optional>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -10,6 +14,7 @@ extern "C" {
 #include <libavutil/frame.h>
 #include <libavutil/samplefmt.h>
 }
+
 #include "decoder.hpp"
 #include "utils.hpp"
 
@@ -97,6 +102,135 @@ void Decoder::setFilterGraph() {
         avfilter_inout_free(&out);
         throw;
     }
+}
+
+std::optional<std::int16_t> Decoder::getSample() { return acquireSample(); }
+
+std::optional<std::int16_t> Decoder::acquireSample() {
+    while (!state.eof) {
+        if (state.cSample < static_cast<int>(state.filterFrame->nb_samples * MaDeviceSpecifiers::channels)) [[likely]] {
+            return reinterpret_cast<std::int16_t *>(state.filterFrame->data[0])[state.cSample++];
+        }
+        const DecodeStatus fAcq{acquireFFrame()};
+        if (fAcq == DecodeStatus::AV_EOF) [[unlikely]] {
+            state.eof = true;
+            break;
+        }
+        require(fAcq != DecodeStatus::AV_EXCEPTION, Error::FFMPEG_DECODE);
+        state.cSample = 0;
+    }
+    return std::nullopt;
+}
+
+DecodeStatus Decoder::retrFFrame() noexcept {
+    av_frame_unref(state.filterFrame.get());
+    const int out{av_buffersink_get_frame(state.filterOutCtx, state.filterFrame.get())};
+    if (out == AVERROR(EAGAIN)) {
+        return DecodeStatus::AV_AGAIN;
+    } else if (out == AVERROR_EOF) {
+        return DecodeStatus::AV_EOF;
+    } else if (out < 0) [[unlikely]] {
+        return DecodeStatus::AV_EXCEPTION;
+    }
+    return DecodeStatus::AV_SUCCESS;
+}
+
+DecodeStatus Decoder::acquireFFrame() noexcept {
+    while (!state.fGraphEof) {
+        DecodeStatus retr{retrFFrame()};
+        if (retr == DecodeStatus::AV_AGAIN) {
+            const DecodeStatus fAcq{acquireFrame()};
+            if (fAcq == DecodeStatus::AV_SUCCESS) {
+                const int srcAdd{av_buffersrc_add_frame(state.filterInCtx, state.frame.get())};
+                if (srcAdd < 0) [[unlikely]] {
+                    return DecodeStatus::AV_EXCEPTION;
+                }
+                continue;
+            } else if (fAcq == DecodeStatus::AV_EXCEPTION) [[unlikely]] {
+                return fAcq;
+            }
+            const int srcAdd{av_buffersrc_add_frame(state.filterInCtx, nullptr)};
+            if (srcAdd < 0) [[unlikely]] {
+                return DecodeStatus::AV_EXCEPTION;
+            }
+            continue;
+        } else if (retr == DecodeStatus::AV_EOF) {
+            state.fGraphEof = true;
+            return DecodeStatus::AV_EOF;
+        } else if (retr == DecodeStatus::AV_EXCEPTION) [[unlikely]] {
+            return retr;
+        }
+        return DecodeStatus::AV_SUCCESS;
+    }
+    return DecodeStatus::AV_EOF;
+}
+
+DecodeStatus Decoder::retrFrame() noexcept {
+    av_frame_unref(state.frame.get());
+    const int rec{avcodec_receive_frame(state.codecCtx.get(), state.frame.get())};
+    if (rec == AVERROR(EAGAIN)) {
+        return DecodeStatus::AV_AGAIN;
+    } else if (rec == AVERROR_EOF) {
+        return DecodeStatus::AV_EOF;
+    } else if (rec < 0) [[unlikely]] {
+        return DecodeStatus::AV_EXCEPTION;
+    }
+    return DecodeStatus::AV_SUCCESS;
+}
+
+DecodeStatus Decoder::acquireFrame() noexcept {
+    while (!state.fEof) {
+        const DecodeStatus retr{retrFrame()};
+        if (retr == DecodeStatus::AV_AGAIN) {
+            const DecodeStatus acqPkt{acquirePacket()};
+            if (acqPkt == DecodeStatus::AV_EOF) {
+                int sendPkt{avcodec_send_packet(state.codecCtx.get(), nullptr)};
+                if (sendPkt < 0) [[unlikely]] {
+                    return DecodeStatus::AV_EXCEPTION;
+                }
+                continue;
+            } else if (acqPkt == DecodeStatus::AV_EXCEPTION) [[unlikely]] {
+                return acqPkt;
+            }
+            const int sendPkt{avcodec_send_packet(state.codecCtx.get(), state.packet.get())};
+            if (sendPkt < 0) [[unlikely]] {
+                return DecodeStatus::AV_EXCEPTION;
+            }
+            continue;
+        } else if (retr == DecodeStatus::AV_EOF) {
+            state.fEof = true;
+            return retr;
+        } else if (retr == DecodeStatus::AV_EXCEPTION) [[unlikely]] {
+            return retr;
+        }
+        return DecodeStatus::AV_SUCCESS;
+    }
+    return DecodeStatus::AV_EOF;
+}
+
+DecodeStatus Decoder::retrPacket() noexcept {
+    av_packet_unref(state.packet.get());
+    const int read{av_read_frame(state.formatCtx.get(), state.packet.get())};
+    if (read == AVERROR_EOF) {
+        state.pEof = true;
+        return DecodeStatus::AV_EOF;
+    } else if (read < 0) [[unlikely]] {
+        return DecodeStatus::AV_EXCEPTION;
+    }
+    return DecodeStatus::AV_SUCCESS;
+}
+
+DecodeStatus Decoder::acquirePacket() noexcept {
+    while (!state.pEof) {
+        const DecodeStatus retr{retrPacket()};
+        if (retr != DecodeStatus::AV_SUCCESS) {
+            return retr;
+        }
+        if (state.packet->stream_index == state.aStreamIdx) {
+            return DecodeStatus::AV_SUCCESS;
+        }
+    }
+    return DecodeStatus::AV_EOF;
 }
 
 } // namespace trm

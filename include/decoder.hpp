@@ -22,6 +22,7 @@ struct FileData {
 
 struct DecodeState {
     int aStreamIdx{-1};
+    int cSample{0};
     bool eof{};
     bool fGraphEof{};
     bool fEof{};
@@ -39,18 +40,24 @@ struct DecodeState {
     static constexpr const char *filterDesc{"aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo"};
 };
 
+enum class DecodeStatus : std::uint8_t {
+    AV_SUCCESS,
+    AV_AGAIN,
+    AV_EXCEPTION,
+    AV_EOF,
+};
+
 // Not a thread-safe implementation. Must only interact with 1 thread.
 class Decoder {
     FileData data{};
     DecodeState state{};
-    void retrSample();
-    void acquireSample();
-    void retrFFrame();
-    void acquireFFrame();
-    void retrFrame();
-    void acquireFrame();
-    void retrPacket();
-    void acquirePacket();
+    std::optional<std::int16_t>  acquireSample();
+    DecodeStatus retrFFrame() noexcept;
+    DecodeStatus acquireFFrame() noexcept;
+    DecodeStatus retrFrame() noexcept;
+    DecodeStatus acquireFrame() noexcept;
+    DecodeStatus retrPacket() noexcept;
+    DecodeStatus acquirePacket() noexcept;
     void setFilterGraph();
 
   public:
@@ -59,7 +66,7 @@ class Decoder {
     float getFileDuration() { return data.duration; }
     float getCurrentTimestamp() { return data.timestamp; }
     float seekTo(const float timestamp);
-    std::int16_t getSample();
+    std::optional<std::int16_t>  getSample();
     Decoder();
     Decoder(const std::filesystem::path path);
 };

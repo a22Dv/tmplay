@@ -4,14 +4,14 @@
 #include <iostream>
 #include <stdexcept>
 
-
 #define ERR_LIST                                                                                                       \
     E(GENERIC, "A generic exception has been thrown.")                                                                 \
     E(MA_INIT, "Miniaudio initialization encountered an error.")                                                       \
     E(DOES_NOT_EXIST, "File does not exist.")                                                                          \
     E(ALLOC, "Memory allocation failure.")                                                                             \
-    E(FFMPEG_OPEN, "File cannot be opened.") \
-    E(FFMPEG_FILTER, "Filter graph failure.")
+    E(FFMPEG_OPEN, "File cannot be opened.")                                                                           \
+    E(FFMPEG_FILTER, "Filter graph failure.")                                                                          \
+    E(FFMPEG_DECODE, "File decode failure.")
 namespace trm {
 
 inline void clearConsole() { std::cout << "\033[2J\033[H" << std::flush; }
