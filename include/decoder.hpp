@@ -39,6 +39,7 @@ struct DecodeState {
     static constexpr const char *filterDesc{"aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo"};
 };
 
+// Not a thread-safe implementation. Must only interact with 1 thread.
 class Decoder {
     FileData data{};
     DecodeState state{};
