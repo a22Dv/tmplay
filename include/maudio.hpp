@@ -10,8 +10,8 @@
 #include <optional>
 #include <queue>
 
-#include "miniaudio.h"
 #include "decoder.hpp"
+#include "miniaudio.h"
 
 /**
     NOTE:
@@ -20,6 +20,7 @@
     Volume will be set to 0.0f,
     Playback will be set to false.
 */
+
 namespace trm {
 
 // Device playback specifiers.
@@ -30,7 +31,7 @@ struct MaDeviceSpecifiers {
     static constexpr ma_device_type deviceType{ma_device_type_playback};
     static constexpr std::chrono::milliseconds queueLimitMs{30};
     static constexpr std::size_t queueLimit{
-        static_cast<std::size_t>(sampleRate * channels * (static_cast<float>(queueLimitMs.count()) / 1000))
+        static_cast<std::size_t>(sampleRate * channels * static_cast<float>(queueLimitMs.count()) / 1000)
     };
 };
 
@@ -68,13 +69,14 @@ struct Command {
 
 // Device state.
 struct DeviceState {
+    FileDataAtomic data{};
     std::atomic<bool> playback{};
     std::atomic<bool> muted{};
     std::atomic<bool> ready{};
     std::atomic<bool> terminate{};
     std::atomic<bool> looping{};
+    std::atomic<bool> eof{true};
     std::atomic<float> volume{};
-    std::atomic<float> timestamp{};
     std::atomic<std::size_t> cQueueSamples{};
     std::mutex queueMutex{};
     std::mutex commandMutex{};
@@ -83,7 +85,8 @@ struct DeviceState {
     std::queue<std::int16_t> stagingQueue{};
     std::condition_variable condition{};
     Decoder decoder{};
-    void flushSampleQueues();
+    void flushSampleQueue();
+    void flushStagingQueue();
     void qPushSync(std::int16_t sample);
     void qPopSync();
 };
@@ -123,6 +126,10 @@ class AudioDevice {
     void seekTo(const float timestamp);
     void start(const std::filesystem::path path);
     void end();
+    float getDuration() { return state.data.duration.load(); }
+    float getTimestamp() { return state.data.timestamp.load(); }
+    bool isEof() { return state.eof.load(); }
+    std::filesystem::path getFilePath() { return state.ready.load() ? state.data.path : ""; }
     ~AudioDevice();
 };
 

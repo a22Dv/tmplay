@@ -80,14 +80,14 @@ void Decoder::setFilterGraph() {
         }
         char layoutDesc[128];
         av_channel_layout_describe(&state.codecCtx->ch_layout, layoutDesc, 128);
-        std::string args{std::format(
+        std::string inArgs{std::format(
             "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}", state.stream->time_base.num,
             state.stream->time_base.den, state.codecCtx->sample_rate,
             av_get_sample_fmt_name(state.codecCtx->sample_fmt), layoutDesc
         )};
         require(
             avfilter_graph_create_filter(
-                &state.filterInCtx, avfilter_get_by_name("abuffer"), "in", args.c_str(), nullptr,
+                &state.filterInCtx, avfilter_get_by_name("abuffer"), "in", inArgs.c_str(), nullptr,
                 state.filterGraph.get()
             ) >= 0,
             Error::FFMPEG_FILTER
@@ -125,11 +125,11 @@ void Decoder::setFilterGraph() {
 std::optional<std::int16_t> Decoder::getSample() { return acquireSample(); }
 
 std::optional<std::int16_t> Decoder::acquireSample() {
-    constexpr float denum{ MaDeviceSpecifiers::channels * MaDeviceSpecifiers::sampleRate};
+    constexpr float denum{MaDeviceSpecifiers::channels * MaDeviceSpecifiers::sampleRate};
+    const AVRational timeBase{av_buffersink_get_time_base(state.filterOutCtx)};
     while (!state.eof) {
         if (state.cSample < static_cast<int>(state.filterFrame->nb_samples * MaDeviceSpecifiers::channels)) [[likely]] {
-            data.timestamp = fromStreamTicks(state.filterFrame->pts, state.filterFrame->time_base);
-            data.timestamp += static_cast<float>(state.cSample) / denum;
+            data.timestamp = fromStreamTicks(state.filterFrame->pts, timeBase) + state.cSample / denum;
             return reinterpret_cast<std::int16_t *>(state.filterFrame->data[0])[state.cSample++];
         }
         const DecodeStatus fAcq{acquireFFrame()};
@@ -265,9 +265,12 @@ void Decoder::seekTo(const float timestamp) {
     setFilterGraph();
     state.cSample = 0;
     state.eof = state.fGraphEof = state.fEof = state.pEof = false;
+    while (state.filterFrame->pts < nTSConverted) {
+        if (acquireFFrame() != DecodeStatus::AV_SUCCESS) {
+            break;
+        }
+    }
     data.timestamp = nTimestamp;
-    while (acquireFFrame() == DecodeStatus::AV_SUCCESS && state.filterFrame->pts < nTSConverted)
-        ;
 }
 
 } // namespace trm
