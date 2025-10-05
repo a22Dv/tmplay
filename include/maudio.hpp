@@ -10,8 +10,8 @@
 #include <optional>
 #include <queue>
 
-#include "miniaudio.h"
 #include "decoder.hpp"
+#include "miniaudio.h"
 
 /**
     NOTE:
@@ -69,13 +69,14 @@ struct Command {
 
 // Device state.
 struct DeviceState {
+    FileDataAtomic data{};
     std::atomic<bool> playback{};
     std::atomic<bool> muted{};
     std::atomic<bool> ready{};
     std::atomic<bool> terminate{};
     std::atomic<bool> looping{};
+    std::atomic<bool> eof{true};
     std::atomic<float> volume{};
-    std::atomic<float> timestamp{};
     std::atomic<std::size_t> cQueueSamples{};
     std::mutex queueMutex{};
     std::mutex commandMutex{};
@@ -125,6 +126,10 @@ class AudioDevice {
     void seekTo(const float timestamp);
     void start(const std::filesystem::path path);
     void end();
+    float getDuration() { return state.data.duration.load(); }
+    float getTimestamp() { return state.data.timestamp.load(); }
+    bool isEof() { return state.eof.load(); }
+    std::filesystem::path getFilePath() { return state.ready.load() ? state.data.path : ""; }
     ~AudioDevice();
 };
 

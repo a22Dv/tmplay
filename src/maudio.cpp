@@ -59,20 +59,22 @@ void AudioDevice::start([[maybe_unused]] const Command &command) {
         state.flushSampleQueue();
     }
     state.flushStagingQueue();
-    state.timestamp.store(0.0f);
-    state.ready.store(true);
     require(command.pVal.has_value(), Error::INVALID_COMMAND);
     state.decoder = Decoder{command.pVal.value()};
+    state.data.timestamp.store(0.0f);
+    state.data.duration.store(state.decoder.getFileDuration());
+    state.eof.store(false);
+    state.ready.store(true);
 }
 void AudioDevice::end([[maybe_unused]] const Command &command) {
+    state.ready.store(false);
     {
         std::lock_guard<std::mutex> lock{state.queueMutex};
         state.flushSampleQueue();
     }
     state.flushStagingQueue();
-    state.playback.store(false);
-    state.ready.store(false);
-    state.timestamp.store(0.0f);
+    state.data.timestamp.store(0.0f);
+    state.eof.store(true);
 }
 
 void AudioDevice::pThread() {
@@ -81,8 +83,8 @@ void AudioDevice::pThread() {
             std::unique_lock<std::mutex> lock{state.commandMutex};
             state.condition.wait(lock, [this] {
                 return this->state.terminate.load() || !this->state.commandQueue.empty() ||
-                       this->state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit ||
-                       (this->state.decoder.eof() && this->state.looping);
+                       this->state.cQueueSamples.load() < MaDeviceSpecifiers::queueLimit || 
+                       (this->state.decoder.eof() && (state.cQueueSamples.load() == 0 || state.looping.load()));
             });
             while (!state.commandQueue.empty()) {
                 Command &com{state.commandQueue.front()};
@@ -103,9 +105,14 @@ void AudioDevice::pThread() {
                 state.commandQueue.pop();
             }
         }
+        if (state.decoder.eof() && this->state.looping) {
+            state.decoder = Decoder{state.decoder.getFilePath()};
+        }
         while (state.stagingQueue.size() < MaDeviceSpecifiers::queueLimit && !state.decoder.eof() &&
                state.decoder.isReady()) {
             state.stagingQueue.push(state.decoder.getSample().value_or(0.0f));
+            state.data.timestamp.store(state.decoder.getCurrentTimestamp());
+            state.eof.store(state.decoder.eof());
         }
         {
             std::lock_guard<std::mutex> lock{state.queueMutex};
@@ -113,6 +120,9 @@ void AudioDevice::pThread() {
                 state.qPushSync(state.stagingQueue.front());
                 state.stagingQueue.pop();
             }
+        }
+        if (state.eof.load() && !state.looping.load() && state.cQueueSamples.load() == 0 && state.ready.load()) {
+            end(Command{});
         }
     }
 }
@@ -131,11 +141,13 @@ void DeviceState::flushSampleQueue() {
 
 void AudioDevice::sendCommand(const Command &command) {
     constexpr std::size_t commandLimit{5};
-    std::lock_guard<std::mutex> lock{state.commandMutex};
-    if (state.commandQueue.size() >= commandLimit) {
-        return;
+    {
+        std::lock_guard<std::mutex> lock{state.commandMutex};
+        if (state.commandQueue.size() >= commandLimit) {
+            return;
+        }
+        state.commandQueue.push(command);
     }
-    state.commandQueue.push(command);
     state.condition.notify_one();
 }
 
@@ -197,7 +209,10 @@ void MaDevice::callback(ma_device *device, void *out, [[maybe_unused]] const voi
     {
         std::lock_guard<std::mutex> lock{aDevice.state.queueMutex};
         while (!state.sampleQueue.empty() && framesServed != tFrameCount) {
-            *(sampleOut + framesServed) = state.sampleQueue.front();
+            *(sampleOut + framesServed) = static_cast<std::int16_t>(std::max(
+                static_cast<float>(INT16_MIN),
+                std::min(static_cast<float>(INT16_MAX), state.sampleQueue.front() * state.volume.load())
+            ));
             state.qPopSync();
             ++framesServed;
         }
@@ -217,7 +232,7 @@ void DeviceState::qPushSync(std::int16_t sample) {
 // Not thread-safe. Modifies the state queue. Must be used within a mutex.
 void DeviceState::qPopSync() {
     sampleQueue.pop();
-    --cQueueSamples;
+    cQueueSamples = !cQueueSamples ? 0 : cQueueSamples - 1;
 }
 
 } // namespace trm

@@ -20,6 +20,12 @@ struct FileData {
     std::filesystem::path path{};
 };
 
+struct FileDataAtomic {
+    std::atomic<float> duration{};
+    std::atomic<float> timestamp{};
+    std::filesystem::path path{};
+};
+
 struct DecodeState {
     int aStreamIdx{-1};
     int cSample{0};
@@ -65,6 +71,7 @@ class Decoder {
     bool eof() { return state.eof; }
     float getFileDuration() { return data.duration; }
     float getCurrentTimestamp() { return data.timestamp; }
+    std::filesystem::path& getFilePath() { return data.path; }
     void seekTo(const float timestamp);
     std::optional<std::int16_t> getSample();
     Decoder() {};
