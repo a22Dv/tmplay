@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #include <unordered_map>
 #include <vector>
 #include <stack>
@@ -42,7 +43,7 @@ class PrefixTree {
     std::stack<std::size_t> freeStack{};
     std::vector<PrefixNode> data{PrefixNode{}};
     std::size_t insertNode(const std::size_t pIdx, const char32_t ch, const bool endOfWord = false);
-    void deleteNode(const std::size_t idx);
+    void deleteSubtree(const std::size_t idx);
 
   public:
     void insertWord(const std::u8string &str);
@@ -57,6 +58,19 @@ struct Library {
     PrefixTree searchTree{};
 };
 
-std::vector<char32_t> convert(const std::u8string& str);
+// Does not check for invalid UTF-8 sequences. Input MUST be valid.
+std::u32string convertToUTF32(const std::u8string& str);
 
+// Does not check for invalid UTF-32 sequences. Input MUST be valid.
+std::u8string convertToUTF8(const std::u32string& str);
+
+// Wraps the contents of a u8string in a string container.
+inline std::string asString(const std::u8string& str) {
+    return {reinterpret_cast<const char*>(str.data()), str.length()};
+}
+
+// Converts to UTF-8 before outputting a string.
+inline std::string asString(const std::u32string& str) {
+    return asString(convertToUTF8(str));
+}
 } // namespace trm

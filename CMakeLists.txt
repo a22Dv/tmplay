@@ -28,6 +28,8 @@ set(SOURCES
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/maudio.cpp"
     "${CMAKE_SOURCE_DIR}/src/decoder.cpp"
+    "${CMAKE_SOURCE_DIR}/src/data.cpp"
+    "${CMAKE_SOURCE_DIR}/src/player.cpp"
 )
 set(INCLUDES "${CMAKE_SOURCE_DIR}/include" ${FFMPEG_INCLUDE_DIRS})
 
