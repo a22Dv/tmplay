@@ -12,7 +12,8 @@
     E(FFMPEG_OPEN, "File cannot be opened.")                                                                           \
     E(FFMPEG_FILTER, "Filter graph failure.")                                                                          \
     E(FFMPEG_DECODE, "File decode failure.")                                                                           \
-    E(INVALID_COMMAND, "Invalid command.")
+    E(INVALID_COMMAND, "Invalid command.")                                                                             \
+    E(INVALID_UTF8, "Invalid UTF-8 sequence.")
 
 namespace trm {
 
@@ -20,7 +21,7 @@ inline void clearConsole() { std::cout << "\033[2J\033[H" << std::flush; }
 
 inline void showError(const std::string &errMsg) {
     clearConsole();
-    std::cout << "\e[0;31m" << "THROWN EXCEPTION:\n" << errMsg << "\e[0m" << std::endl;
+    std::cout << "\e[0;31m" << "EXCEPTION:\n" << errMsg << "\e[0m" << std::endl;
 }
 
 enum class Error : std::uint8_t {
