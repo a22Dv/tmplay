@@ -34,6 +34,7 @@ class PrefixNode {
         ch = U'\0';
         children.clear();
     }
+    // Returns the index of the child saved when found, else returns SIZE_MAX.
     std::size_t findChild(const char32_t ch);
     std::size_t addChild(const char32_t ch, const std::size_t idx);
     void removeChild(const char32_t ch);
@@ -42,6 +43,7 @@ class PrefixNode {
 class PrefixTree {
     std::stack<std::size_t> freeStack{};
     std::vector<PrefixNode> data{PrefixNode{}};
+    // Adds the node onto the arena, and makes it a child of the passed parent.
     std::size_t insertNode(const std::size_t pIdx, const char32_t ch, const bool endOfWord = false);
     void deleteSubtree(const std::size_t idx);
 

@@ -16,7 +16,7 @@ std::size_t PrefixNode::findChild(const char32_t ch) {
         return e.first < f;
     })};
     if (lowerIter == children.end() || lowerIter->first != ch) {
-        return children.size();
+        return SIZE_MAX;
     }
     return lowerIter->second;
 }
@@ -77,7 +77,7 @@ void PrefixTree::insertWord(const std::u8string &str) {
         const char32_t sChar{*iter};
         PrefixNode &cNode{data[cIdx]};
         std::size_t childIdx{};
-        if ((childIdx = cNode.findChild(sChar)) == cNode.children.size()) {
+        if ((childIdx = cNode.findChild(sChar)) == SIZE_MAX) {
             childIdx = insertNode(cIdx, sChar);
         }
         if (std::next(iter) == codepoints.end()) {
@@ -96,7 +96,7 @@ void PrefixTree::deleteWord(const std::u8string &str) {
     for (auto iter{codepoints.begin()}; iter != codepoints.end(); ++iter) {
         const char32_t sChar{*iter};
         std::size_t childIdx{};
-        if ((childIdx = cNode.findChild(sChar)) == cNode.children.size()) {
+        if ((childIdx = cNode.findChild(sChar)) == SIZE_MAX) {
             return;
         }
         path.push(childIdx);
@@ -121,7 +121,7 @@ std::vector<std::u8string> PrefixTree::traverse(const std::u8string &str) {
     std::size_t startNodeIdx{};
     for (const auto ch : codepoints) {
         const std::size_t childIdx{data[startNodeIdx].findChild(ch)};
-        if (childIdx == data[startNodeIdx].children.size()) {
+        if (childIdx == SIZE_MAX) {
             return {};
         }
         startNodeIdx = childIdx;
