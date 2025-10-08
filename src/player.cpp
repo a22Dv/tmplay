@@ -11,7 +11,7 @@ void Player::run() {
     tree.insertWord(u8"acb");
     tree.insertWord(u8"abcd");
     tree.insertWord(u8"abdc");
-    for (const auto& u8Str : tree.traverse(u8"")) {
+    for (const auto& u8Str : tree.traverse(u8"ab")) {
         std::cout << asString(u8Str) << '\n';
     }
 }

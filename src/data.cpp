@@ -1,9 +1,14 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
+#include <chrono>
 #include <climits>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <stack>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,8 +55,8 @@ std::size_t PrefixTree::insertNode(const std::size_t pIdx, const char32_t ch, co
         data.emplace_back();
         cNIdx = data.size() - 1;
     } else {
-        cNIdx = freeStack.top();
-        freeStack.pop();
+        cNIdx = freeStack.back();
+        freeStack.pop_back();
     }
     PrefixNode &pNode{data[pIdx]};
     PrefixNode &cNode{data[cNIdx]};
@@ -67,7 +72,7 @@ void PrefixTree::deleteSubtree(const std::size_t idx) {
         deleteSubtree(pair.second);
     }
     node.reset();
-    freeStack.push(idx);
+    freeStack.push_back(idx);
 }
 
 void PrefixTree::insertWord(const std::u8string &str) {
@@ -215,6 +220,135 @@ std::u8string convertToUTF8(const std::u32string &str) {
         tmp.clear();
     }
     return u8str;
+}
+
+Configuration Configuration::getDefaultConfig() {
+    Configuration config{};
+    config.defaultAutoplay = true;
+    config.defaultLooped = false;
+    config.defaultVolume = 100;
+    config.rootDirectories = {asString(getUserMusicDirectory().u8string())};
+    config.supportedExtensions = {".mp3", ".m4a", ".flac", ".opus", ".webm", ".ogg", ".wav"};
+    return config;
+}
+
+Library::Library() {
+    const std::filesystem::path execPath{getExecutablePath().parent_path()};
+    const std::filesystem::path configPath{execPath / "tmplay_config.json"};
+    const std::filesystem::path dataPath{execPath / "tmplay_data.json"};
+    if (!std::filesystem::exists(configPath)) {
+        Configuration config{Configuration::getDefaultConfig()};
+        nlohmann::json node(config);
+        std::ofstream outStream{configPath};
+        require(outStream.is_open(), Error::WRITE);
+        outStream << node.dump(4);
+    }
+    if (!std::filesystem::exists(dataPath)) {
+        std::ofstream outStream{dataPath};
+        require(outStream.is_open(), Error::WRITE);
+        outStream << nlohmann::json{}.dump(4);
+    }
+    std::ifstream configStream{configPath};
+    std::ifstream dataStream{dataPath};
+    require(configStream.is_open(), Error::READ);
+    require(dataStream.is_open(), Error::READ);
+    config = nlohmann::json::parse(configStream);
+    nlohmann::json json(nlohmann::json::parse(dataStream));
+    std::vector<Entry> existingEntries{};
+    if (!json.is_null() && json.is_object()) {
+        existingEntries = json["entries"];
+        dirCache = json["dirCache"];
+    }
+    std::unordered_map<std::u8string, std::size_t> existingNamesToEntries{};
+    for (std::size_t i{}; const auto &entry : existingEntries) {
+        existingNamesToEntries[asU8(entry.name)] = i++;
+    }
+    std::unordered_set<std::string> supportedExtensions{};
+    for (const auto &ext : config.supportedExtensions) {
+        supportedExtensions.insert(ext);
+    }
+    std::vector<std::filesystem::path> rootDirs{};
+    for (const auto &rootDir : config.rootDirectories) {
+        rootDirs.emplace_back(asU8(rootDir));
+    }
+    for (const auto &rootDir : dirCache.getModifiedPaths(rootDirs)) {
+        dirCache.insertEntry(rootDir);
+        for (const auto &entry : std::filesystem::recursive_directory_iterator(rootDir)) {
+            if (entry.is_directory()) {
+                dirCache.insertEntry(entry.path());
+                continue;
+            }
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            const std::filesystem::path path{entry.path()};
+            if (supportedExtensions.find(path.extension().string()) == supportedExtensions.end()) {
+                continue;
+            }
+            const std::u8string name{path.filename().replace_extension("").u8string()};
+            if (auto it{existingNamesToEntries.find(name)}; it == existingNamesToEntries.end()) {
+                entries.emplace_back(asChar(name), path, 0, 0, getFileDuration(path));
+            } else {
+                entries.emplace_back(existingEntries[it->second]);
+            }
+            nameToEntry[name] = entries.size() - 1;
+            searchTree.insertWord(name);
+        }
+    }
+    std::ofstream outDataStream{dataPath};
+    outDataStream << nlohmann::json(*this).dump(4);
+}
+
+std::chrono::milliseconds Directories::queryTimestamp(const std::filesystem::path &path) {
+    if (auto it = directoryList.find(path); it != directoryList.end()) {
+        return std::chrono::milliseconds{it->second};
+    }
+    return std::chrono::milliseconds{0};
+}
+
+std::vector<DirectoryEntry> Directories::getChildren(const std::filesystem::path &parent) {
+    std::vector<DirectoryEntry> children{};
+    for (const auto &pair : directoryList) {
+        if (!pair.first.has_parent_path()) {
+            continue;
+        }
+        if (pair.first.parent_path() == parent) {
+            children.push_back(DirectoryEntry{pair.first, std::chrono::milliseconds{pair.second}});
+        }
+    }
+    return children;
+}
+
+bool Directories::matches_directory_timestamp(const std::filesystem::path &path) {
+    if (auto it = directoryList.find(path); it != directoryList.end()) {
+        return std::chrono::milliseconds{it->second} == std::filesystem::last_write_time(path).time_since_epoch();
+    }
+    return false;
+}
+
+std::vector<std::filesystem::path>
+Directories::getModifiedPaths(const std::vector<std::filesystem::path> &rootDirectories) {
+    std::vector<std::filesystem::path> modified{};
+    for (const auto &pair : directoryList) {
+        if (!matches_directory_timestamp(pair.first)) {
+            modified.emplace_back(pair.first);
+        }
+    }
+    for (const auto &root : rootDirectories) {
+        if (directoryList.find(root) == directoryList.end()) {
+            modified.emplace_back(root);
+        }
+    }
+    return modified;
+}
+
+void Directories::insertEntry(const std::filesystem::path &directory) {
+    if (directoryList.find(directory) == directoryList.end()) {
+        std::chrono::milliseconds mils{std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::filesystem::last_write_time(directory).time_since_epoch()
+        )};
+        directoryList[directory] = mils.count();
+    }
 }
 
 } // namespace trm

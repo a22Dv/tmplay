@@ -36,11 +36,16 @@ float fromStreamTicks(const std::int64_t from, const AVRational streamUnits) {
 } // namespace
 
 Decoder::Decoder(const std::filesystem::path path) {
-    AVFormatContext *fctx{};
+    /**
+        NOTE: Refactor in the future to allocate transfer ownership directly.
+    */
+    AVFormatContext* fctxRaw{};
     require(std::filesystem::exists(path), Error::DOES_NOT_EXIST);
-    require(avformat_open_input(&fctx, asU8(path).data(), nullptr, nullptr) >= 0, Error::FFMPEG_OPEN);
-    require(avformat_find_stream_info(fctx, nullptr) >= 0, Error::FFMPEG_OPEN);
-    state.aStreamIdx = av_find_best_stream(fctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    require(avformat_open_input(&fctxRaw, asU8(path).data(), nullptr, nullptr) >= 0, Error::FFMPEG_OPEN);
+    std::unique_ptr<AVFormatContext, decltype([](AVFormatContext *f) { avformat_close_input(&f); })> fctx{};
+    fctx.reset(fctxRaw);
+    require(avformat_find_stream_info(fctx.get(), nullptr) >= 0, Error::FFMPEG_OPEN);
+    state.aStreamIdx = av_find_best_stream(fctx.get(), AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     require(state.aStreamIdx >= 0, Error::FFMPEG_OPEN);
     state.stream = fctx->streams[state.aStreamIdx];
     data.duration = static_cast<float>(fctx->duration) / AV_TIME_BASE;
@@ -59,7 +64,7 @@ Decoder::Decoder(const std::filesystem::path path) {
     require(state.frame.get(), Error::FFMPEG_OPEN);
     require(state.filterFrame.get(), Error::FFMPEG_OPEN);
     require(state.packet.get(), Error::FFMPEG_OPEN);
-    state.formatCtx.reset(fctx);
+    state.formatCtx.reset(fctx.release());
     setFilterGraph();
     acquireFFrame();
     state.validState = true;

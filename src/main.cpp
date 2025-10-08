@@ -2,6 +2,9 @@
 #include <Windows.h>
 #endif
 
+extern "C" {
+#include <libavutil/log.h>
+}
 #include <exception>
 #include <iostream>
 
@@ -15,6 +18,7 @@ int main() {
 #endif
     std::ios_base::sync_with_stdio(false);
     try {
+        av_log_set_level(AV_LOG_ERROR);
         trm::Player pl{};
         pl.run();
     } catch (const std::exception &e) {
